@@ -1,21 +1,18 @@
 package broadcast
 
-import "time"
+import (
+	"time"
+
+	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	"golang.org/x/oauth2"
+)
 
 type Options struct {
-	XboxClientID     string
-	XboxClientSecret string
-	Accounts         []AccountOptions
-	Friends          FriendOptions
-	Listener         ListenerOptions
-	Relay            RelayOptions
-}
-
-type AccountOptions struct {
-	Gamertag     string
-	RefreshToken string
-	ShowAsOnline bool
-	PreferredIPs []string
+	Tokens   []*oauth2.Token
+	Friends  FriendOptions
+	Listener ListenerOptions
+	Relay    RelayOptions
+	Logger   *logger.Logger
 }
 
 type FriendOptions struct {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft"
+	"golang.org/x/oauth2"
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
 	"github.com/cjmustard/consoleconnect/broadcast/friends"
@@ -19,10 +20,10 @@ import (
 type Service struct {
 	opts     Options
 	log      *logger.Logger
-	accounts *account.Manager
+	accounts *account.Store
 	friends  *friends.Manager
-	sessions *session.Manager
-	nether   *nether.Manager
+	sessions *session.Server
+	nether   *nether.SignalingHub
 
 	started bool
 	mu      sync.RWMutex
@@ -31,32 +32,30 @@ type Service struct {
 func New(opts Options) (*Service, error) {
 	opts.ApplyDefaults()
 
-	loggr := logger.New()
-	acctMgr := account.NewManager()
-	for _, acct := range opts.Accounts {
-		if _, err := acctMgr.Register(context.Background(), account.Options{
-			Gamertag:     acct.Gamertag,
-			RefreshToken: acct.RefreshToken,
-			ShowAsOnline: acct.ShowAsOnline,
-			PreferredIPs: acct.PreferredIPs,
-		}); err != nil {
-			return nil, fmt.Errorf("register account %s: %w", acct.Gamertag, err)
+	loggr := opts.Logger
+	if loggr == nil {
+		loggr = logger.New()
+	}
+	acctStore := account.NewStore()
+	for _, tok := range opts.Tokens {
+		if _, err := acctStore.Register(context.Background(), tok); err != nil {
+			return nil, fmt.Errorf("register account: %w", err)
 		}
 	}
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	provider := friends.NewXboxProvider(httpClient)
-	friendMgr := friends.NewManager(loggr, acctMgr, provider)
+	friendMgr := friends.NewManager(loggr, acctStore, provider)
 	friendMgr.Configure(friends.Options{
 		AutoAccept: opts.Friends.AutoAccept,
 		AutoAdd:    opts.Friends.AutoAdd,
 		SyncEvery:  opts.Friends.SyncTicker,
 	})
 
-	netherMgr := nether.NewManager(loggr, acctMgr)
+	netherHub := nether.NewHub(loggr, acctStore)
 
-	sessionMgr := session.NewManager(loggr, acctMgr, netherMgr, httpClient)
+	sessionMgr := session.NewServer(loggr, acctStore, netherHub, httpClient)
 	sessionMgr.ConfigureRelay(session.RelayOptions{
 		RemoteAddress: opts.Relay.RemoteAddress,
 		VerifyTarget:  opts.Relay.VerifyTarget,
@@ -66,10 +65,10 @@ func New(opts Options) (*Service, error) {
 	srv := &Service{
 		opts:     opts,
 		log:      loggr,
-		accounts: acctMgr,
+		accounts: acctStore,
 		friends:  friendMgr,
 		sessions: sessionMgr,
-		nether:   netherMgr,
+		nether:   netherHub,
 	}
 
 	return srv, nil
@@ -79,6 +78,29 @@ func (s *Service) Options() Options {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.opts
+}
+
+func (s *Service) AddToken(ctx context.Context, tok *oauth2.Token) (*account.Account, error) {
+	if s.accounts == nil {
+		return nil, fmt.Errorf("account store unavailable")
+	}
+	acct, err := s.accounts.Register(ctx, tok)
+	if err != nil {
+		return nil, fmt.Errorf("register account: %w", err)
+	}
+
+	s.mu.RLock()
+	started := s.started
+	s.mu.RUnlock()
+	if started {
+		if s.nether != nil {
+			s.nether.AttachAccount(acct)
+		}
+		if s.sessions != nil {
+			s.sessions.AttachAccount(ctx, acct)
+		}
+	}
+	return acct, nil
 }
 
 func (s *Service) Run(ctx context.Context) error {

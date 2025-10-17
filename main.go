@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cjmustard/consoleconnect/broadcast"
+	"github.com/cjmustard/consoleconnect/broadcast/logger"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
@@ -15,17 +16,13 @@ import (
 const tokenFile = "assets/token.tok"
 
 func main() {
-	refresh := ensureRefreshToken()
+	token := ensureToken()
+
+	loggr := logger.New()
+	loggr.SetLevel(logger.LevelWarn)
 
 	opts := broadcast.Options{
-		Accounts: []broadcast.AccountOptions{
-			{
-				Gamertag:     "LumineProxy",
-				RefreshToken: refresh,
-				ShowAsOnline: true,
-				PreferredIPs: []string{"0.0.0.0"},
-			},
-		},
+		Tokens: []*oauth2.Token{token},
 		Friends: broadcast.FriendOptions{
 			AutoAccept: true,
 			AutoAdd:    true,
@@ -41,6 +38,7 @@ func main() {
 			VerifyTarget:  true,
 			Timeout:       5 * time.Second,
 		},
+		Logger: loggr,
 	}
 
 	svc, err := broadcast.New(opts)
@@ -53,7 +51,7 @@ func main() {
 	}
 }
 
-func ensureRefreshToken() string {
+func ensureToken() *oauth2.Token {
 	src := tokenSource()
 	tok, err := src.Token()
 	if err != nil {
@@ -62,7 +60,8 @@ func ensureRefreshToken() string {
 	if tok.RefreshToken == "" {
 		log.Fatal("received empty refresh token")
 	}
-	return tok.RefreshToken
+	clone := *tok
+	return &clone
 }
 
 func tokenSource() oauth2.TokenSource {

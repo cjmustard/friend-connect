@@ -38,8 +38,29 @@ func NewTokenManager(refreshToken string, onUpdate func(*Token)) *TokenManager {
 		return nil
 	}
 	seed := &oauth2.Token{RefreshToken: refreshToken, Expiry: time.Now().Add(-time.Hour)}
+	return NewTokenManagerFromToken(seed, onUpdate)
+}
+
+func NewTokenManagerFromToken(seed *oauth2.Token, onUpdate func(*Token)) *TokenManager {
+	if seed == nil || seed.RefreshToken == "" {
+		return nil
+	}
+	clone := *seed
+	if clone.Expiry.IsZero() || time.Until(clone.Expiry) > 0 {
+		// Force the first call to refresh immediately so the manager always
+		// works with a fresh access token derived from the refresh token.
+		clone.Expiry = time.Now().Add(-time.Minute)
+	}
+	base := auth.RefreshTokenSource(&clone)
+	return NewTokenManagerFromSource(oauth2.ReuseTokenSource(&clone, base), onUpdate)
+}
+
+func NewTokenManagerFromSource(src oauth2.TokenSource, onUpdate func(*Token)) *TokenManager {
+	if src == nil {
+		return nil
+	}
 	return &TokenManager{
-		src:      auth.RefreshTokenSource(seed),
+		src:      src,
 		tokens:   map[string]*Token{},
 		onUpdate: onUpdate,
 		client:   authclient.DefaultClient,

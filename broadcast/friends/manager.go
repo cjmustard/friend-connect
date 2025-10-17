@@ -41,14 +41,14 @@ type Request struct {
 
 type Manager struct {
 	log      *logger.Logger
-	accounts *account.Manager
+	accounts *account.Store
 	provider Provider
 	friends  map[string][]Friend
 	mu       sync.RWMutex
 	opts     Options
 }
 
-func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider) *Manager {
+func NewManager(log *logger.Logger, accounts *account.Store, provider Provider) *Manager {
 	if provider == nil {
 		provider = NewXboxProvider(nil)
 	}
