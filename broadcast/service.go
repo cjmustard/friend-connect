@@ -61,6 +61,11 @@ func New(opts Options) (*Service, error) {
 	provider := friends.NewXboxProvider(httpClient)
 	notify := notifications.NewManager(loggr, opts.Notifications)
 	friendMgr := friends.NewManager(loggr, acctMgr, provider, notify)
+	friendMgr.Configure(friends.Options{
+		AutoAccept: opts.Friends.AutoAccept,
+		AutoAdd:    opts.Friends.AutoAdd,
+		SyncEvery:  opts.Friends.SyncTicker,
+	})
 
 	galleryMgr, err := gallery.New(opts.Gallery.Path)
 	if err != nil {
@@ -119,20 +124,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}()
 
-	go func() {
-		ticker := time.NewTicker(s.opts.Friends.SyncTicker)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := s.friends.Sync(ctx); err != nil {
-					s.log.Errorf("friend sync: %v", err)
-				}
-			}
-		}
-	}()
+	go s.friends.Run(ctx)
 
 	go func() {
 		if err := s.sessions.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider}); err != nil {

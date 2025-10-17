@@ -6,7 +6,7 @@ Edition sessions and exposes supporting components that replicate the original
 Java service features such as:
 
 - Multi-account Xbox Live presence management.
-- Friend list synchronisation with automatic additions.
+- Friend list synchronisation with automatic additions and inbound request acceptance.
 - MOTD and status broadcasting via gophertunnel.
 - Web-based manager that surfaces live account/session/friend data.
 - Gallery support for custom user images.

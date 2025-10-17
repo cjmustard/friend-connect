@@ -12,15 +12,32 @@ import (
 )
 
 type Friend struct {
-	Gamertag string    `json:"gamertag"`
-	Added    time.Time `json:"added"`
-	Online   bool      `json:"online"`
+	XUID      string    `json:"xuid"`
+	Gamertag  string    `json:"gamertag"`
+	Added     time.Time `json:"added"`
+	Online    bool      `json:"online"`
+	Following bool      `json:"following"`
+	Followed  bool      `json:"followed"`
 }
 
 type Provider interface {
 	ListFriends(ctx context.Context, acct *account.Account) ([]Friend, error)
 	AddFriend(ctx context.Context, acct *account.Account, gamertag string) error
+	AddFriendByXUID(ctx context.Context, acct *account.Account, xuid, gamertag string) error
 	RemoveFriend(ctx context.Context, acct *account.Account, gamertag string) error
+	PendingRequests(ctx context.Context, acct *account.Account) ([]Request, error)
+	AcceptRequests(ctx context.Context, acct *account.Account, xuids []string) ([]Request, error)
+}
+
+type Options struct {
+	AutoAccept bool
+	AutoAdd    bool
+	SyncEvery  time.Duration
+}
+
+type Request struct {
+	XUID     string
+	Gamertag string
 }
 
 type Manager struct {
@@ -30,6 +47,7 @@ type Manager struct {
 	friends  map[string][]Friend
 	mu       sync.RWMutex
 	notify   notifications.Manager
+	opts     Options
 }
 
 func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider, notify notifications.Manager) *Manager {
@@ -40,6 +58,47 @@ func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider
 		provider = NewXboxProvider(nil)
 	}
 	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}, notify: notify}
+}
+
+func (m *Manager) Configure(opts Options) {
+	if opts.SyncEvery <= 0 {
+		opts.SyncEvery = time.Minute
+	}
+	m.opts = opts
+}
+
+func (m *Manager) Run(ctx context.Context) {
+	if m.opts.SyncEvery <= 0 {
+		m.opts.SyncEvery = time.Minute
+	}
+
+	ticker := time.NewTicker(m.opts.SyncEvery)
+	defer ticker.Stop()
+
+	m.syncAndProcess(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.syncAndProcess(ctx)
+		}
+	}
+}
+
+func (m *Manager) syncAndProcess(ctx context.Context) {
+	if err := m.Sync(ctx); err != nil {
+		m.log.Errorf("friend sync: %v", err)
+	}
+
+	if m.opts.AutoAdd {
+		m.autoFollowBack(ctx)
+	}
+
+	if m.opts.AutoAccept {
+		m.acceptPending(ctx)
+	}
 }
 
 func (m *Manager) Sync(ctx context.Context) error {
@@ -68,6 +127,57 @@ func (m *Manager) Sync(ctx context.Context) error {
 	return firstErr
 }
 
+func (m *Manager) autoFollowBack(ctx context.Context) {
+	m.accounts.WithAccounts(func(acct *account.Account) {
+		tag := acct.Gamertag()
+		friends := m.Friends(tag)
+		for _, fr := range friends {
+			if fr.XUID == "" {
+				continue
+			}
+			if fr.Following && !fr.Followed {
+				if err := m.provider.AddFriendByXUID(ctx, acct, fr.XUID, fr.Gamertag); err != nil {
+					m.log.Errorf("auto follow %s -> %s: %v", tag, fr.Gamertag, err)
+				} else {
+					m.log.Infof("followed back %s (%s)", fr.Gamertag, fr.XUID)
+				}
+			}
+		}
+	})
+}
+
+func (m *Manager) acceptPending(ctx context.Context) {
+	m.accounts.WithAccounts(func(acct *account.Account) {
+		requests, err := m.provider.PendingRequests(ctx, acct)
+		if err != nil {
+			m.log.Errorf("fetch friend requests for %s: %v", acct.Gamertag(), err)
+			return
+		}
+		if len(requests) == 0 {
+			return
+		}
+		xuids := make([]string, 0, len(requests))
+		for _, r := range requests {
+			xuids = append(xuids, r.XUID)
+		}
+		accepted, err := m.provider.AcceptRequests(ctx, acct, xuids)
+		if err != nil {
+			m.log.Errorf("accept friend requests for %s: %v", acct.Gamertag(), err)
+			return
+		}
+		if len(accepted) == 0 {
+			accepted = requests
+		}
+		for _, r := range accepted {
+			name := r.Gamertag
+			if name == "" {
+				name = r.XUID
+			}
+			m.log.Infof("accepted friend request from %s", name)
+		}
+	})
+}
+
 func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
 	if gamertag == "" {
 		return errors.New("missing gamertag")
@@ -90,6 +200,15 @@ func (m *Manager) Snapshot() map[string][]Friend {
 		copy[k] = friends
 	}
 	return copy
+}
+
+func (m *Manager) Friends(gamertag string) []Friend {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	friends := m.friends[gamertag]
+	out := make([]Friend, len(friends))
+	copySlice(out, friends)
+	return out
 }
 
 func copySlice(dst, src []Friend) {
