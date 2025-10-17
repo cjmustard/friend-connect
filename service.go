@@ -12,7 +12,6 @@ import (
 
 	"github.com/cjmustard/friendconnect/account"
 	"github.com/cjmustard/friendconnect/friends"
-	"github.com/cjmustard/friendconnect/nether"
 	"github.com/cjmustard/friendconnect/session"
 	"log/slog"
 	"os"
@@ -24,7 +23,7 @@ type Service struct {
 	accounts *account.Store
 	friends  *friends.Manager
 	sessions *session.Server
-	nether   *nether.SignalingHub
+	nether   *session.SignalingHub
 
 	started bool
 	mu      sync.RWMutex
@@ -54,7 +53,7 @@ func New(opts Options) (*Service, error) {
 		SyncEvery:  opts.Friends.SyncTicker,
 	})
 
-	netherHub := nether.NewHub(loggr.With("component", "nether"), acctStore)
+	netherHub := session.NewSignalingHub(loggr.With("component", "nether"), acctStore)
 
 	sessionMgr := session.NewServer(loggr.With("component", "session"), acctStore, netherHub, httpClient)
 	sessionMgr.ConfigureRelay(session.RelayOptions{

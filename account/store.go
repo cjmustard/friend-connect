@@ -12,7 +12,6 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 
 	"github.com/cjmustard/friendconnect/constants"
-	"github.com/cjmustard/friendconnect/xbox"
 )
 
 type Status int
@@ -25,7 +24,7 @@ const (
 
 type Account struct {
 	store       *Store
-	tokenMgr    *xbox.TokenManager
+	tokenMgr    *TokenManager
 	tokenSource oauth2.TokenSource
 
 	gamertag  string
@@ -71,7 +70,7 @@ func (s *Store) Register(ctx context.Context, seed *oauth2.Token) (*Account, err
 		metadata:    map[string]any{},
 		tokenSource: oauth2.ReuseTokenSource(clone, authTokenSource(clone)),
 	}
-	acct.tokenMgr = xbox.NewTokenManagerFromToken(clone, func(tok *xbox.Token) {
+	acct.tokenMgr = NewTokenManagerFromToken(clone, func(tok *Token) {
 		s.applyToken(acct, tok)
 	})
 
@@ -91,7 +90,7 @@ func (s *Store) Register(ctx context.Context, seed *oauth2.Token) (*Account, err
 	return acct, nil
 }
 
-func (s *Store) applyToken(acct *Account, tok *xbox.Token) {
+func (s *Store) applyToken(acct *Account, tok *Token) {
 	if acct == nil || tok == nil {
 		return
 	}
@@ -136,7 +135,7 @@ func (s *Store) WithAccounts(fn func(*Account)) {
 	}
 }
 
-func (a *Account) Token(ctx context.Context, relyingParty string) (*xbox.Token, error) {
+func (a *Account) Token(ctx context.Context, relyingParty string) (*Token, error) {
 	if a.tokenMgr == nil {
 		return nil, errors.New("token manager not initialised")
 	}

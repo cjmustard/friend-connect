@@ -13,7 +13,6 @@ import (
 
 	"github.com/cjmustard/friendconnect/account"
 	"github.com/cjmustard/friendconnect/constants"
-	"github.com/cjmustard/friendconnect/xbox"
 )
 
 type XboxProvider struct {
@@ -138,7 +137,7 @@ func (p *XboxProvider) RemoveFriend(ctx context.Context, acct *account.Account, 
 	return nil
 }
 
-func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *xbox.Token) ([]person, error) {
+func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *account.Token) ([]person, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -165,7 +164,7 @@ func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *
 	return out.People, nil
 }
 
-func (p *XboxProvider) lookupXUID(ctx context.Context, token *xbox.Token, gamertag string) (string, error) {
+func (p *XboxProvider) lookupXUID(ctx context.Context, token *account.Token, gamertag string) (string, error) {
 	endpoint := fmt.Sprintf("https://profile.xboxlive.com/users/gt(%s)/profile/settings?settings=Gamertag", url.PathEscape(gamertag))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -290,7 +289,7 @@ func (p *XboxProvider) AcceptRequests(ctx context.Context, acct *account.Account
 	return requests, nil
 }
 
-func applyCommonHeaders(req *http.Request, token *xbox.Token) {
+func applyCommonHeaders(req *http.Request, token *account.Token) {
 	req.Header.Set("Authorization", token.Header)
 	req.Header.Set("Content-Type", "application/json")
 }

@@ -29,8 +29,6 @@ import (
 
 	"github.com/cjmustard/friendconnect/account"
 	"github.com/cjmustard/friendconnect/constants"
-	"github.com/cjmustard/friendconnect/nether"
-	"github.com/cjmustard/friendconnect/xbox"
 )
 
 type Server struct {
@@ -45,7 +43,7 @@ type Server struct {
 	subsMu      sync.RWMutex
 
 	httpClient *http.Client
-	nether     *nether.SignalingHub
+	nether     *SignalingHub
 
 	announcers map[string]*room.XBLAnnouncer
 	sessions   map[string]*mpsd.Session
@@ -105,7 +103,7 @@ type relayCheckState struct {
 	err       error
 }
 
-func NewServer(log *slog.Logger, accounts *account.Store, netherHub *nether.SignalingHub, httpClient *http.Client) *Server {
+func NewServer(log *slog.Logger, accounts *account.Store, netherHub *SignalingHub, httpClient *http.Client) *Server {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -343,7 +341,7 @@ func (m *Server) announcerFor(acct *account.Account) *room.XBLAnnouncer {
 	}
 	scid := uuid.MustParse(constants.ServiceConfigID)
 	ann := &room.XBLAnnouncer{
-		TokenSource: xboxTokenSource{acct: acct},
+		TokenSource: accountTokenSource{acct: acct},
 		SessionReference: mpsd.SessionReference{
 			ServiceConfigID: scid,
 			TemplateName:    constants.TemplateName,
@@ -373,7 +371,7 @@ func (m *Server) sessionFor(acct *account.Account) *mpsd.Session {
 	return m.sessions[acct.SessionID()]
 }
 
-func (m *Server) buildStatus(ctx context.Context, acct *account.Account, tok *xbox.Token) (room.Status, error) {
+func (m *Server) buildStatus(ctx context.Context, acct *account.Account, tok *account.Token) (room.Status, error) {
 	status := room.Status{
 		Joinability:             room.JoinabilityJoinableByFriends,
 		HostName:                defaultHostName(acct.Gamertag()),
@@ -951,11 +949,11 @@ func defaultWorldName(gamertag string) string {
 	return fmt.Sprintf("%s Realm", gamertag)
 }
 
-type xboxTokenSource struct {
+type accountTokenSource struct {
 	acct *account.Account
 }
 
-func (s xboxTokenSource) Token() (xsapi.Token, error) {
+func (s accountTokenSource) Token() (xsapi.Token, error) {
 	tok, err := s.acct.Token(context.Background(), constants.RelyingPartyXboxLive)
 	if err != nil {
 		return nil, err
@@ -964,7 +962,7 @@ func (s xboxTokenSource) Token() (xsapi.Token, error) {
 }
 
 type xsapiToken struct {
-	tok *xbox.Token
+	tok *account.Token
 }
 
 func (t xsapiToken) SetAuthHeader(req *http.Request) {

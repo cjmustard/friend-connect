@@ -1,4 +1,4 @@
-package nether
+package session
 
 import (
 	"context"
@@ -95,7 +95,7 @@ func (n *notifier) NotifyError(err error) {
 	n.once.Do(func() { close(n.done) })
 }
 
-func NewHub(log *slog.Logger, accounts *account.Store) *SignalingHub {
+func NewSignalingHub(log *slog.Logger, accounts *account.Store) *SignalingHub {
 	if log == nil {
 		log = slog.Default()
 	}
