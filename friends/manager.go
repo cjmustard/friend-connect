@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cjmustard/friend-connect/account"
+	"github.com/cjmustard/friendconnect/account"
 )
 
 type Friend struct {

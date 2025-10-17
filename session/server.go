@@ -27,10 +27,10 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 
-	"github.com/cjmustard/friend-connect/account"
-	"github.com/cjmustard/friend-connect/constants"
-	"github.com/cjmustard/friend-connect/nether"
-	"github.com/cjmustard/friend-connect/xbox"
+	"github.com/cjmustard/friendconnect/account"
+	"github.com/cjmustard/friendconnect/constants"
+	"github.com/cjmustard/friendconnect/nether"
+	"github.com/cjmustard/friendconnect/xbox"
 )
 
 type Server struct {

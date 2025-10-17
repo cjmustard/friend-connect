@@ -11,8 +11,8 @@ import (
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 
-	"github.com/cjmustard/friend-connect/constants"
-	"github.com/cjmustard/friend-connect/xbox"
+	"github.com/cjmustard/friendconnect/constants"
+	"github.com/cjmustard/friendconnect/xbox"
 )
 
 type Status int
