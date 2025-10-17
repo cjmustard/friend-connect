@@ -34,9 +34,9 @@ import (
 	"github.com/cjmustard/consoleconnect/broadcast/xbox"
 )
 
-type Orchestrator struct {
+type Server struct {
 	log      *logger.Logger
-	accounts *account.Manager
+	accounts *account.Store
 	listener *minecraft.Listener
 
 	conns  map[string]*minecraft.Conn
@@ -106,11 +106,11 @@ type relayCheckState struct {
 	err       error
 }
 
-func NewOrchestrator(log *logger.Logger, accounts *account.Manager, netherHub *nether.SignalingHub, httpClient *http.Client) *Orchestrator {
+func NewServer(log *logger.Logger, accounts *account.Store, netherHub *nether.SignalingHub, httpClient *http.Client) *Server {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Orchestrator{
+	return &Server{
 		log:             log,
 		accounts:        accounts,
 		conns:           map[string]*minecraft.Conn{},
@@ -125,14 +125,14 @@ func NewOrchestrator(log *logger.Logger, accounts *account.Manager, netherHub *n
 	}
 }
 
-func (m *Orchestrator) ConfigureRelay(opts RelayOptions) {
+func (m *Server) ConfigureRelay(opts RelayOptions) {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 5 * time.Second
 	}
 	m.relay = opts
 }
 
-func (m *Orchestrator) Start(ctx context.Context) {
+func (m *Server) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -143,13 +143,13 @@ func (m *Orchestrator) Start(ctx context.Context) {
 	go m.refreshSessions(ctx)
 }
 
-func (m *Orchestrator) setContext(ctx context.Context) {
+func (m *Server) setContext(ctx context.Context) {
 	m.ctxMu.Lock()
 	m.ctx = ctx
 	m.ctxMu.Unlock()
 }
 
-func (m *Orchestrator) sessionContext() context.Context {
+func (m *Server) sessionContext() context.Context {
 	m.ctxMu.RLock()
 	ctx := m.ctx
 	m.ctxMu.RUnlock()
@@ -159,7 +159,7 @@ func (m *Orchestrator) sessionContext() context.Context {
 	return ctx
 }
 
-func (m *Orchestrator) startAccount(acct *account.Account) {
+func (m *Server) startAccount(acct *account.Account) {
 	if acct == nil {
 		return
 	}
@@ -178,12 +178,10 @@ func (m *Orchestrator) startAccount(acct *account.Account) {
 			m.log.Errorf("create session for %s: %v", acct.Gamertag(), err)
 		}
 	}()
-	if acct.ShowAsOnline() {
-		go m.runPresence(ctx, acct)
-	}
+	go m.runPresence(ctx, acct)
 }
 
-func (m *Orchestrator) AttachAccount(ctx context.Context, acct *account.Account) {
+func (m *Server) AttachAccount(ctx context.Context, acct *account.Account) {
 	if acct == nil {
 		return
 	}
@@ -200,14 +198,14 @@ func (m *Orchestrator) AttachAccount(ctx context.Context, acct *account.Account)
 	}
 }
 
-func (m *Orchestrator) setNetherRuntime(ctx context.Context, provider minecraft.ServerStatusProvider) {
+func (m *Server) setNetherRuntime(ctx context.Context, provider minecraft.ServerStatusProvider) {
 	m.netherMu.Lock()
 	m.netherCtx = ctx
 	m.netherProvider = provider
 	m.netherMu.Unlock()
 }
 
-func (m *Orchestrator) netherRuntime() (minecraft.ServerStatusProvider, context.Context) {
+func (m *Server) netherRuntime() (minecraft.ServerStatusProvider, context.Context) {
 	m.netherMu.RLock()
 	provider := m.netherProvider
 	ctx := m.netherCtx
@@ -215,7 +213,7 @@ func (m *Orchestrator) netherRuntime() (minecraft.ServerStatusProvider, context.
 	return provider, ctx
 }
 
-func (m *Orchestrator) startNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
+func (m *Server) startNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
 	if acct == nil || provider == nil || m.nether == nil {
 		return
 	}
@@ -233,7 +231,7 @@ func (m *Orchestrator) startNetherForAccount(ctx context.Context, provider minec
 	go m.listenNetherForAccount(ctx, provider, acct)
 }
 
-func (m *Orchestrator) runPresence(ctx context.Context, acct *account.Account) {
+func (m *Server) runPresence(ctx context.Context, acct *account.Account) {
 	backoff := 10 * time.Second
 	maxBackoff := 5 * time.Minute
 	for {
@@ -267,7 +265,7 @@ func (m *Orchestrator) runPresence(ctx context.Context, acct *account.Account) {
 	}
 }
 
-func (m *Orchestrator) updatePresence(ctx context.Context, acct *account.Account) (time.Duration, error) {
+func (m *Server) updatePresence(ctx context.Context, acct *account.Account) (time.Duration, error) {
 	if err := m.ensureSession(ctx, acct); err != nil {
 		m.log.Errorf("ensure session for %s: %v", acct.Gamertag(), err)
 	}
@@ -312,7 +310,7 @@ func (m *Orchestrator) updatePresence(ctx context.Context, acct *account.Account
 	return time.Duration(heartbeat) * time.Second, nil
 }
 
-func (m *Orchestrator) ensureSession(ctx context.Context, acct *account.Account) error {
+func (m *Server) ensureSession(ctx context.Context, acct *account.Account) error {
 	if acct == nil {
 		return errors.New("nil account")
 	}
@@ -334,7 +332,7 @@ func (m *Orchestrator) ensureSession(ctx context.Context, acct *account.Account)
 	return nil
 }
 
-func (m *Orchestrator) announcerFor(acct *account.Account) *room.XBLAnnouncer {
+func (m *Server) announcerFor(acct *account.Account) *room.XBLAnnouncer {
 	sessionID := acct.SessionID()
 	m.sessMu.Lock()
 	defer m.sessMu.Unlock()
@@ -355,7 +353,7 @@ func (m *Orchestrator) announcerFor(acct *account.Account) *room.XBLAnnouncer {
 	return ann
 }
 
-func (m *Orchestrator) storeSession(id string, sess *mpsd.Session) {
+func (m *Server) storeSession(id string, sess *mpsd.Session) {
 	if sess == nil || id == "" {
 		return
 	}
@@ -364,7 +362,7 @@ func (m *Orchestrator) storeSession(id string, sess *mpsd.Session) {
 	m.sessMu.Unlock()
 }
 
-func (m *Orchestrator) sessionFor(acct *account.Account) *mpsd.Session {
+func (m *Server) sessionFor(acct *account.Account) *mpsd.Session {
 	if acct == nil {
 		return nil
 	}
@@ -373,7 +371,7 @@ func (m *Orchestrator) sessionFor(acct *account.Account) *mpsd.Session {
 	return m.sessions[acct.SessionID()]
 }
 
-func (m *Orchestrator) buildStatus(ctx context.Context, acct *account.Account, tok *xbox.Token) (room.Status, error) {
+func (m *Server) buildStatus(ctx context.Context, acct *account.Account, tok *xbox.Token) (room.Status, error) {
 	status := room.Status{
 		Joinability:             room.JoinabilityJoinableByFriends,
 		HostName:                defaultHostName(acct.Gamertag()),
@@ -436,13 +434,13 @@ func (m *Orchestrator) buildStatus(ctx context.Context, acct *account.Account, t
 	return status, nil
 }
 
-func (m *Orchestrator) listenerInfo() (uint16, string) {
+func (m *Server) listenerInfo() (uint16, string) {
 	m.listenMu.RLock()
 	defer m.listenMu.RUnlock()
 	return m.listenPort, m.listenGUID
 }
 
-func (m *Orchestrator) metadataFor(acct *account.Account) *statusMetadata {
+func (m *Server) metadataFor(acct *account.Account) *statusMetadata {
 	id := acct.SessionID()
 	m.metaMu.Lock()
 	defer m.metaMu.Unlock()
@@ -462,7 +460,7 @@ func randomLevelID() string {
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
-func (m *Orchestrator) refreshSessions(ctx context.Context) {
+func (m *Server) refreshSessions(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -479,7 +477,7 @@ func (m *Orchestrator) refreshSessions(ctx context.Context) {
 	}
 }
 
-func (m *Orchestrator) Listen(ctx context.Context, opts Options) error {
+func (m *Server) Listen(ctx context.Context, opts Options) error {
 	if opts.Provider == nil {
 		opts.Provider = minecraft.NewStatusProvider("Broadcaster", "Minecraft Presence Relay")
 	}
@@ -515,7 +513,7 @@ func (m *Orchestrator) Listen(ctx context.Context, opts Options) error {
 	}
 }
 
-func (m *Orchestrator) captureListenerInfo(listener *minecraft.Listener) {
+func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
 	if listener == nil {
 		return
 	}
@@ -539,7 +537,7 @@ func (m *Orchestrator) captureListenerInfo(listener *minecraft.Listener) {
 	})
 }
 
-func (m *Orchestrator) listenNether(ctx context.Context, provider minecraft.ServerStatusProvider) {
+func (m *Server) listenNether(ctx context.Context, provider minecraft.ServerStatusProvider) {
 	if m.accounts == nil || m.nether == nil {
 		return
 	}
@@ -552,7 +550,7 @@ func (m *Orchestrator) listenNether(ctx context.Context, provider minecraft.Serv
 	})
 }
 
-func (m *Orchestrator) listenNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
+func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
 	if acct == nil || m.nether == nil {
 		return
 	}
@@ -650,7 +648,7 @@ func (m *Orchestrator) listenNetherForAccount(ctx context.Context, provider mine
 	}
 }
 
-func (m *Orchestrator) handleConn(ctx context.Context, conn *minecraft.Conn) {
+func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	addr := conn.RemoteAddr().String()
 	m.connMu.Lock()
 	m.conns[addr] = conn
@@ -683,13 +681,6 @@ func (m *Orchestrator) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	}
 
 	gameData := m.gameDataFor(host)
-	if requireFlag {
-		if enriched, err := m.enrichGameData(ctx, conn, host, gameData); err != nil {
-			m.log.Warnf("load remote game data: %v", err)
-		} else {
-			gameData = enriched
-		}
-	}
 
 	if err := conn.StartGame(gameData); err != nil {
 		m.log.Errorf("start game: %v", err)
@@ -727,7 +718,7 @@ func (m *Orchestrator) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	<-ctx.Done()
 }
 
-func (m *Orchestrator) waitForTransferFlag(ctx context.Context) (*account.Account, error) {
+func (m *Server) waitForTransferFlag(ctx context.Context) (*account.Account, error) {
 	if m.nether == nil {
 		return nil, nil
 	}
@@ -740,7 +731,7 @@ func (m *Orchestrator) waitForTransferFlag(ctx context.Context) (*account.Accoun
 	return nil, waitCtx.Err()
 }
 
-func (m *Orchestrator) notifyNoPendingTransfer(conn *minecraft.Conn) {
+func (m *Server) notifyNoPendingTransfer(conn *minecraft.Conn) {
 	if conn == nil {
 		return
 	}
@@ -751,7 +742,7 @@ func (m *Orchestrator) notifyNoPendingTransfer(conn *minecraft.Conn) {
 	_ = conn.Flush()
 }
 
-func (m *Orchestrator) gameDataFor(acct *account.Account) minecraft.GameData {
+func (m *Server) gameDataFor(acct *account.Account) minecraft.GameData {
 	runtimeID := m.entityIDs.Add(1)
 	worldName := defaultWorldName("")
 	if acct != nil {
@@ -777,7 +768,7 @@ func (m *Orchestrator) gameDataFor(acct *account.Account) minecraft.GameData {
 	}
 }
 
-func (m *Orchestrator) handlePackets(header packet.Header, payload []byte, src net.Addr, dst net.Addr) {
+func (m *Server) handlePackets(header packet.Header, payload []byte, src net.Addr, dst net.Addr) {
 	subs := m.lookupClient(src.String())
 	if subs == nil {
 		return
@@ -785,13 +776,13 @@ func (m *Orchestrator) handlePackets(header packet.Header, payload []byte, src n
 	subs.UpdateLastPing()
 }
 
-func (m *Orchestrator) lookupClient(addr string) *ClientSession {
+func (m *Server) lookupClient(addr string) *ClientSession {
 	m.subsMu.RLock()
 	defer m.subsMu.RUnlock()
 	return m.subsessions[addr]
 }
 
-func (m *Orchestrator) trackClient(addr string, acct *account.Account, conn *minecraft.Conn) *ClientSession {
+func (m *Server) trackClient(addr string, acct *account.Account, conn *minecraft.Conn) *ClientSession {
 	subs := &ClientSession{Account: acct, Conn: conn, LastPing: time.Now(), Metadata: map[string]any{}}
 	m.subsMu.Lock()
 	m.subsessions[addr] = subs
@@ -799,7 +790,7 @@ func (m *Orchestrator) trackClient(addr string, acct *account.Account, conn *min
 	return subs
 }
 
-func (m *Orchestrator) ClientSnapshot() []map[string]any {
+func (m *Server) ClientSnapshot() []map[string]any {
 	m.subsMu.RLock()
 	defer m.subsMu.RUnlock()
 	result := make([]map[string]any, 0, len(m.subsessions))
@@ -814,7 +805,7 @@ func (m *Orchestrator) ClientSnapshot() []map[string]any {
 	return result
 }
 
-func (m *Orchestrator) CloseClient(addr string) {
+func (m *Server) CloseClient(addr string) {
 	m.connMu.Lock()
 	if conn, ok := m.conns[addr]; ok {
 		conn.Close()
@@ -827,7 +818,7 @@ func (m *Orchestrator) CloseClient(addr string) {
 	m.subsMu.Unlock()
 }
 
-func (m *Orchestrator) transferClient(ctx context.Context, conn *minecraft.Conn) error {
+func (m *Server) transferClient(ctx context.Context, conn *minecraft.Conn) error {
 	host, portStr, err := net.SplitHostPort(m.relay.RemoteAddress)
 	if err != nil {
 		return fmt.Errorf("invalid relay address: %w", err)
@@ -861,7 +852,7 @@ func (m *Orchestrator) transferClient(ctx context.Context, conn *minecraft.Conn)
 	return nil
 }
 
-func (m *Orchestrator) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
+func (m *Server) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
 	msg := fmt.Sprintf("Unable to reach the relay destination: %v", relayErr)
 	_ = conn.WritePacket(&packet.Disconnect{
 		Reason:  packet.DisconnectReasonKicked,
@@ -870,67 +861,11 @@ func (m *Orchestrator) notifyTransferFailure(conn *minecraft.Conn, relayErr erro
 }
 
 const (
-	relayCheckInterval    = 15 * time.Second
-	transferFlagTimeout   = 20 * time.Second
-	remoteGameDataTimeout = 15 * time.Second
+	relayCheckInterval  = 15 * time.Second
+	transferFlagTimeout = 20 * time.Second
 )
 
-func (m *Orchestrator) enrichGameData(ctx context.Context, conn *minecraft.Conn, host *account.Account, base minecraft.GameData) (minecraft.GameData, error) {
-	if m.relay.RemoteAddress == "" {
-		return base, errors.New("relay remote address not configured")
-	}
-	if m.nether == nil {
-		return base, errors.New("nether manager unavailable")
-	}
-	src := m.nether.TokenSource(host)
-	if src == nil {
-		return base, errors.New("missing authentication for host")
-	}
-
-	timeout := m.relay.Timeout
-	if timeout <= 0 {
-		timeout = remoteGameDataTimeout
-	}
-
-	dialCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	dialer := minecraft.Dialer{
-		TokenSource: src,
-		ClientData:  conn.ClientData(),
-	}
-	serverConn, err := dialer.DialContext(dialCtx, "raknet", m.relay.RemoteAddress)
-	if err != nil {
-		return base, fmt.Errorf("dial remote: %w", err)
-	}
-	defer serverConn.Close()
-
-	remote := serverConn.GameData()
-	if len(remote.Items) == 0 && len(remote.CustomBlocks) == 0 {
-		return base, fmt.Errorf("remote game data incomplete")
-	}
-
-	remote.EntityRuntimeID = base.EntityRuntimeID
-	remote.EntityUniqueID = base.EntityUniqueID
-	remote.PlayerPermissions = base.PlayerPermissions
-	remote.PlayerGameMode = base.PlayerGameMode
-	remote.WorldGameMode = base.WorldGameMode
-	remote.PlayerPosition = base.PlayerPosition
-	remote.WorldSpawn = base.WorldSpawn
-	if remote.WorldName == "" {
-		remote.WorldName = base.WorldName
-	}
-	if remote.BaseGameVersion == "" {
-		remote.BaseGameVersion = base.BaseGameVersion
-	}
-	if remote.ChunkRadius == 0 {
-		remote.ChunkRadius = base.ChunkRadius
-	}
-
-	return remote, nil
-}
-
-func (m *Orchestrator) verifyRelayTarget(ctx context.Context, timeout time.Duration) error {
+func (m *Server) verifyRelayTarget(ctx context.Context, timeout time.Duration) error {
 	if m.relay.RemoteAddress == "" || !m.relay.VerifyTarget {
 		return nil
 	}

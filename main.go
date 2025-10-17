@@ -16,19 +16,13 @@ import (
 const tokenFile = "assets/token.tok"
 
 func main() {
-	refresh := ensureRefreshToken()
+	token := ensureToken()
 
 	loggr := logger.New()
 	loggr.SetLevel(logger.LevelWarn)
 
 	opts := broadcast.Options{
-		Accounts: []broadcast.AccountOptions{
-			{
-				Gamertag:     "LumineProxy",
-				RefreshToken: refresh,
-				ShowAsOnline: true,
-			},
-		},
+		Tokens: []*oauth2.Token{token},
 		Friends: broadcast.FriendOptions{
 			AutoAccept: true,
 			AutoAdd:    true,
@@ -57,7 +51,7 @@ func main() {
 	}
 }
 
-func ensureRefreshToken() string {
+func ensureToken() *oauth2.Token {
 	src := tokenSource()
 	tok, err := src.Token()
 	if err != nil {
@@ -66,7 +60,8 @@ func ensureRefreshToken() string {
 	if tok.RefreshToken == "" {
 		log.Fatal("received empty refresh token")
 	}
-	return tok.RefreshToken
+	clone := *tok
+	return &clone
 }
 
 func tokenSource() oauth2.TokenSource {

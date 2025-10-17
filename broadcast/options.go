@@ -4,20 +4,15 @@ import (
 	"time"
 
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	"golang.org/x/oauth2"
 )
 
 type Options struct {
-	Accounts []AccountOptions
+	Tokens   []*oauth2.Token
 	Friends  FriendOptions
 	Listener ListenerOptions
 	Relay    RelayOptions
 	Logger   *logger.Logger
-}
-
-type AccountOptions struct {
-	Gamertag     string
-	RefreshToken string
-	ShowAsOnline bool
 }
 
 type FriendOptions struct {

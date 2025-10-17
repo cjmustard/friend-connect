@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft"
+	"golang.org/x/oauth2"
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
 	"github.com/cjmustard/consoleconnect/broadcast/friends"
@@ -19,9 +20,9 @@ import (
 type Service struct {
 	opts     Options
 	log      *logger.Logger
-	accounts *account.Manager
+	accounts *account.Store
 	friends  *friends.Manager
-	sessions *session.Orchestrator
+	sessions *session.Server
 	nether   *nether.SignalingHub
 
 	started bool
@@ -35,30 +36,26 @@ func New(opts Options) (*Service, error) {
 	if loggr == nil {
 		loggr = logger.New()
 	}
-	acctMgr := account.NewManager()
-	for _, acct := range opts.Accounts {
-		if _, err := acctMgr.Register(context.Background(), account.Options{
-			Gamertag:     acct.Gamertag,
-			RefreshToken: acct.RefreshToken,
-			ShowAsOnline: acct.ShowAsOnline,
-		}); err != nil {
-			return nil, fmt.Errorf("register account %s: %w", acct.Gamertag, err)
+	acctStore := account.NewStore()
+	for _, tok := range opts.Tokens {
+		if _, err := acctStore.Register(context.Background(), tok); err != nil {
+			return nil, fmt.Errorf("register account: %w", err)
 		}
 	}
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	provider := friends.NewXboxProvider(httpClient)
-	friendMgr := friends.NewManager(loggr, acctMgr, provider)
+	friendMgr := friends.NewManager(loggr, acctStore, provider)
 	friendMgr.Configure(friends.Options{
 		AutoAccept: opts.Friends.AutoAccept,
 		AutoAdd:    opts.Friends.AutoAdd,
 		SyncEvery:  opts.Friends.SyncTicker,
 	})
 
-	netherHub := nether.NewHub(loggr, acctMgr)
+	netherHub := nether.NewHub(loggr, acctStore)
 
-	sessionMgr := session.NewOrchestrator(loggr, acctMgr, netherHub, httpClient)
+	sessionMgr := session.NewServer(loggr, acctStore, netherHub, httpClient)
 	sessionMgr.ConfigureRelay(session.RelayOptions{
 		RemoteAddress: opts.Relay.RemoteAddress,
 		VerifyTarget:  opts.Relay.VerifyTarget,
@@ -68,7 +65,7 @@ func New(opts Options) (*Service, error) {
 	srv := &Service{
 		opts:     opts,
 		log:      loggr,
-		accounts: acctMgr,
+		accounts: acctStore,
 		friends:  friendMgr,
 		sessions: sessionMgr,
 		nether:   netherHub,
@@ -83,17 +80,13 @@ func (s *Service) Options() Options {
 	return s.opts
 }
 
-func (s *Service) AddAccount(ctx context.Context, opts AccountOptions) (*account.Account, error) {
+func (s *Service) AddToken(ctx context.Context, tok *oauth2.Token) (*account.Account, error) {
 	if s.accounts == nil {
-		return nil, fmt.Errorf("account manager unavailable")
+		return nil, fmt.Errorf("account store unavailable")
 	}
-	acct, err := s.accounts.Register(ctx, account.Options{
-		Gamertag:     opts.Gamertag,
-		RefreshToken: opts.RefreshToken,
-		ShowAsOnline: opts.ShowAsOnline,
-	})
+	acct, err := s.accounts.Register(ctx, tok)
 	if err != nil {
-		return nil, fmt.Errorf("register account %s: %w", opts.Gamertag, err)
+		return nil, fmt.Errorf("register account: %w", err)
 	}
 
 	s.mu.RLock()

@@ -13,7 +13,6 @@ import (
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/sandertv/gophertunnel/minecraft"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/auth/authclient"
 	"github.com/sandertv/gophertunnel/minecraft/auth/franchise/signaling"
 	"golang.org/x/oauth2"
@@ -24,7 +23,7 @@ import (
 
 type SignalingHub struct {
 	log      *logger.Logger
-	accounts *account.Manager
+	accounts *account.Store
 
 	mu       sync.Mutex
 	sessions map[string]*SignalingSession
@@ -97,7 +96,7 @@ func (n *notifier) NotifyError(err error) {
 	n.once.Do(func() { close(n.done) })
 }
 
-func NewHub(log *logger.Logger, accounts *account.Manager) *SignalingHub {
+func NewHub(log *logger.Logger, accounts *account.Store) *SignalingHub {
 	if log == nil {
 		log = logger.New()
 	}
@@ -259,7 +258,16 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 		default:
 		}
 
-		src := m.tokenSource(acct.RefreshToken())
+		src := acct.TokenSource()
+		if src == nil {
+			m.log.Errorf("missing token source for %s", acct.Gamertag())
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
 		d := signaling.Dialer{
 			NetworkID:  sess.networkID,
 			AuthClient: authclient.DefaultClient,
@@ -310,24 +318,13 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 	}
 }
 
-func (m *SignalingHub) tokenSource(refresh string) oauth2.TokenSource {
-	seed := &oauth2.Token{RefreshToken: refresh, Expiry: time.Now().Add(-time.Hour)}
-	base := auth.RefreshTokenSource(seed)
-	return oauth2.ReuseTokenSource(seed, base)
-}
-
-// TokenSource returns an oauth2.TokenSource for the provided account using the
-// account's refresh token. If the account is nil or does not have a refresh
-// token available, nil is returned.
+// TokenSource exposes the underlying oauth2.TokenSource for the provided
+// account. If the account is nil, nil is returned.
 func (m *SignalingHub) TokenSource(acct *account.Account) oauth2.TokenSource {
 	if acct == nil {
 		return nil
 	}
-	refresh := acct.RefreshToken()
-	if refresh == "" {
-		return nil
-	}
-	return m.tokenSource(refresh)
+	return acct.TokenSource()
 }
 
 func randomUint64() uint64 {
