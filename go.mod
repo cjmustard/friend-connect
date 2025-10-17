@@ -1,4 +1,4 @@
-module github.com/cjmustard/friendconnect
+module github.com/cjmustard.com/friend-connect
 
 go 1.24.0
 
