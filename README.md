@@ -7,7 +7,8 @@ Java service features such as:
 
 - Multi-account Xbox Live presence management.
 - Friend list synchronisation with automatic additions and inbound request acceptance.
-- MOTD and status broadcasting via gophertunnel.
+- MOTD and status broadcasting via gophertunnel with optional relay transfers to a
+  downstream Bedrock server.
 - Web-based manager that surfaces live account/session/friend data.
 - Gallery support for custom user images.
 - Persistent storage of friend data using JSON files.
@@ -29,7 +30,9 @@ a standalone executable without any external configuration files.
 ## Running the broadcaster
 
 Edit `main.go` and populate the `broadcast.Options` struct with the gamertags and
-refresh tokens you want to broadcast. The sample configuration calls into the
+refresh tokens you want to broadcast. Provide a `Relay` `RemoteAddress` if you want
+incoming players to receive a Minecraft transfer packet that forwards them to your
+own Bedrock server. The sample configuration calls into the
 Microsoft device login flow via gophertunnel's auth helpers to cache a refresh
 token locally (`assets/token.tok`).
 

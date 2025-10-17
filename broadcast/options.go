@@ -12,13 +12,13 @@ type Options struct {
 	Accounts         []AccountOptions     `json:"accounts,omitempty"`
 	Storage          StorageOptions       `json:"storage"`
 	Friends          FriendOptions        `json:"friends"`
-	Invite           InviteOptions        `json:"invite"`
 	HTTP             HTTPOptions          `json:"http"`
 	Ping             PingOptions          `json:"ping"`
 	Gallery          GalleryOptions       `json:"gallery"`
 	Notifications    notifications.Config `json:"notifications"`
 	CustomImages     map[string]string    `json:"customImages,omitempty"`
 	Listener         ListenerOptions      `json:"listener"`
+	Relay            RelayOptions         `json:"relay"`
 }
 
 type AccountOptions struct {
@@ -36,11 +36,6 @@ type FriendOptions struct {
 	AutoAccept bool          `json:"autoAccept"`
 	AutoAdd    bool          `json:"autoAdd"`
 	SyncTicker time.Duration `json:"syncTicker"`
-}
-
-type InviteOptions struct {
-	Enabled  bool          `json:"enabled"`
-	Interval time.Duration `json:"interval"`
 }
 
 type HTTPOptions struct {
@@ -66,6 +61,12 @@ type ListenerOptions struct {
 	Message string `json:"message"`
 }
 
+type RelayOptions struct {
+	RemoteAddress string        `json:"remoteAddress"`
+	VerifyTarget  bool          `json:"verifyTarget"`
+	Timeout       time.Duration `json:"timeout"`
+}
+
 func (o *Options) ApplyDefaults() {
 	if o.HTTP.Addr == "" {
 		o.HTTP.Addr = ":8080"
@@ -78,9 +79,6 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.Friends.SyncTicker == 0 {
 		o.Friends.SyncTicker = time.Minute
-	}
-	if o.Invite.Interval == 0 {
-		o.Invite.Interval = time.Minute
 	}
 	if o.Ping.Period == 0 {
 		o.Ping.Period = 30 * time.Second
@@ -96,6 +94,12 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.Listener.Message == "" {
 		o.Listener.Message = "Minecraft Presence Relay"
+	}
+	if o.Relay.Timeout == 0 {
+		o.Relay.Timeout = 5 * time.Second
+	}
+	if o.Relay.RemoteAddress != "" && !o.Relay.VerifyTarget {
+		o.Relay.VerifyTarget = true
 	}
 	if o.CustomImages == nil {
 		o.CustomImages = map[string]string{}

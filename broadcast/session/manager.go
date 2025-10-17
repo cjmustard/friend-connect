@@ -53,6 +53,8 @@ type Manager struct {
 
 	statusMeta map[string]*statusMetadata
 	metaMu     sync.Mutex
+
+	relay RelayOptions
 }
 
 type Options struct {
@@ -72,6 +74,12 @@ type statusMetadata struct {
 	levelID string
 }
 
+type RelayOptions struct {
+	RemoteAddress string
+	VerifyTarget  bool
+	Timeout       time.Duration
+}
+
 func NewManager(log *logger.Logger, accounts *account.Manager, netherMgr *nether.Manager, httpClient *http.Client) *Manager {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -87,6 +95,13 @@ func NewManager(log *logger.Logger, accounts *account.Manager, netherMgr *nether
 		sessions:    map[string]*mpsd.Session{},
 		statusMeta:  map[string]*statusMetadata{},
 	}
+}
+
+func (m *Manager) ConfigureRelay(opts RelayOptions) {
+	if opts.Timeout <= 0 {
+		opts.Timeout = 5 * time.Second
+	}
+	m.relay = opts
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -395,7 +410,10 @@ func (m *Manager) captureListenerInfo(listener *minecraft.Listener) {
 	if addr, ok := listener.Addr().(*net.UDPAddr); ok {
 		port = uint16(addr.Port)
 	}
-	guid := strconv.FormatInt(listener.ID(), 10)
+	guid := m.listenGUID
+	if guid == "" {
+		guid = strings.ReplaceAll(uuid.NewString(), "-", "")
+	}
 	m.listenMu.Lock()
 	m.listenPort = port
 	m.listenGUID = guid
@@ -409,18 +427,26 @@ func (m *Manager) captureListenerInfo(listener *minecraft.Listener) {
 }
 
 func (m *Manager) handleConn(ctx context.Context, conn *minecraft.Conn) {
+	addr := conn.RemoteAddr().String()
 	m.connMu.Lock()
-	m.conns[conn.RemoteAddr().String()] = conn
+	m.conns[addr] = conn
 	m.connMu.Unlock()
+	defer m.Close(addr)
 
 	if err := conn.StartGame(minecraft.GameData{}); err != nil {
 		m.log.Errorf("start game: %v", err)
-		conn.Close()
+		return
+	}
+
+	if m.relay.RemoteAddress != "" {
+		if err := m.transferClient(ctx, conn); err != nil {
+			m.log.Errorf("relay transfer: %v", err)
+			m.notifyTransferFailure(conn, err)
+		}
 		return
 	}
 
 	<-ctx.Done()
-	conn.Close()
 }
 
 func (m *Manager) handlePackets(header packet.Header, payload []byte, src net.Addr, dst net.Addr) {
@@ -471,6 +497,46 @@ func (m *Manager) Close(addr string) {
 	m.subsMu.Lock()
 	delete(m.subsessions, addr)
 	m.subsMu.Unlock()
+}
+
+func (m *Manager) transferClient(ctx context.Context, conn *minecraft.Conn) error {
+	host, portStr, err := net.SplitHostPort(m.relay.RemoteAddress)
+	if err != nil {
+		return fmt.Errorf("invalid relay address: %w", err)
+	}
+
+	timeout := m.relay.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	if m.relay.VerifyTarget {
+		d := net.Dialer{Timeout: timeout}
+		testCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		testConn, err := d.DialContext(testCtx, "udp", m.relay.RemoteAddress)
+		if err != nil {
+			return fmt.Errorf("verify relay target %s: %w", m.relay.RemoteAddress, err)
+		}
+		testConn.Close()
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("parse relay port: %w", err)
+	}
+
+	if err := conn.WritePacket(&packet.Transfer{Address: host, Port: uint16(port)}); err != nil {
+		return fmt.Errorf("send transfer packet: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
+	msg := fmt.Sprintf("Unable to reach the relay destination: %v", relayErr)
+	_ = conn.WritePacket(&packet.Disconnect{
+		Reason:  packet.DisconnectReasonKicked,
+		Message: msg,
+	})
 }
 
 func (s *SubSession) UpdateLastPing() {

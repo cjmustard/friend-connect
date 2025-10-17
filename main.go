@@ -35,10 +35,6 @@ func main() {
 			AutoAdd:    true,
 			SyncTicker: time.Minute,
 		},
-		Invite: broadcast.InviteOptions{
-			Enabled:  true,
-			Interval: time.Minute,
-		},
 		HTTP: broadcast.HTTPOptions{
 			Addr:         ":8080",
 			ReadTimeout:  5 * time.Second,
@@ -64,6 +60,11 @@ func main() {
 			Address: "0.0.0.0:19132",
 			Name:    "Console Connect",
 			Message: "Minecraft Presence Relay",
+		},
+		Relay: broadcast.RelayOptions{
+			RemoteAddress: "127.0.0.1:19132",
+			VerifyTarget:  true,
+			Timeout:       5 * time.Second,
 		},
 	}
 
