@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/cjmustard/consoleconnect/broadcast/xbox"
 )
 
@@ -32,6 +34,7 @@ type Account struct {
 	refreshToken string
 	showOnline   bool
 	preferredIPs []string
+	sessionID    string
 
 	status   Status
 	lastSeen time.Time
@@ -62,6 +65,7 @@ func (m *Manager) Register(ctx context.Context, opts Options) (*Account, error) 
 		refreshToken: opts.RefreshToken,
 		showOnline:   opts.ShowAsOnline,
 		preferredIPs: append([]string(nil), opts.PreferredIPs...),
+		sessionID:    uuid.NewString(),
 		status:       StatusOffline,
 		lastSeen:     time.Now(),
 		metadata:     map[string]any{},
@@ -147,6 +151,12 @@ func (a *Account) PreferredIPs() []string {
 	out := make([]string, len(a.preferredIPs))
 	copy(out, a.preferredIPs)
 	return out
+}
+
+func (a *Account) SessionID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.sessionID
 }
 
 func (a *Account) UpdateStatus(status Status, metadata map[string]any) {

@@ -62,9 +62,11 @@ func New(opts Options) (*Service, error) {
 	notify := notifications.NewManager(loggr, opts.Notifications)
 	friendMgr := friends.NewManager(loggr, acctMgr, provider, notify)
 	friendMgr.Configure(friends.Options{
-		AutoAccept: opts.Friends.AutoAccept,
-		AutoAdd:    opts.Friends.AutoAdd,
-		SyncEvery:  opts.Friends.SyncTicker,
+		AutoAccept:    opts.Friends.AutoAccept,
+		AutoAdd:       opts.Friends.AutoAdd,
+		SyncEvery:     opts.Friends.SyncTicker,
+		InviteEvery:   opts.Invite.Interval,
+		InviteEnabled: opts.Invite.Enabled,
 	})
 
 	galleryMgr, err := gallery.New(opts.Gallery.Path)

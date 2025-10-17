@@ -12,6 +12,7 @@ type Options struct {
 	Accounts         []AccountOptions     `json:"accounts,omitempty"`
 	Storage          StorageOptions       `json:"storage"`
 	Friends          FriendOptions        `json:"friends"`
+	Invite           InviteOptions        `json:"invite"`
 	HTTP             HTTPOptions          `json:"http"`
 	Ping             PingOptions          `json:"ping"`
 	Gallery          GalleryOptions       `json:"gallery"`
@@ -35,6 +36,11 @@ type FriendOptions struct {
 	AutoAccept bool          `json:"autoAccept"`
 	AutoAdd    bool          `json:"autoAdd"`
 	SyncTicker time.Duration `json:"syncTicker"`
+}
+
+type InviteOptions struct {
+	Enabled  bool          `json:"enabled"`
+	Interval time.Duration `json:"interval"`
 }
 
 type HTTPOptions struct {
@@ -72,6 +78,9 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.Friends.SyncTicker == 0 {
 		o.Friends.SyncTicker = time.Minute
+	}
+	if o.Invite.Interval == 0 {
+		o.Invite.Interval = time.Minute
 	}
 	if o.Ping.Period == 0 {
 		o.Ping.Period = 30 * time.Second

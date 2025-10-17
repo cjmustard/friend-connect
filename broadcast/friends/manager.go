@@ -27,12 +27,15 @@ type Provider interface {
 	RemoveFriend(ctx context.Context, acct *account.Account, gamertag string) error
 	PendingRequests(ctx context.Context, acct *account.Account) ([]Request, error)
 	AcceptRequests(ctx context.Context, acct *account.Account, xuids []string) ([]Request, error)
+	SendInvite(ctx context.Context, acct *account.Account, sessionID, xuid string) error
 }
 
 type Options struct {
-	AutoAccept bool
-	AutoAdd    bool
-	SyncEvery  time.Duration
+	AutoAccept    bool
+	AutoAdd       bool
+	SyncEvery     time.Duration
+	InviteEvery   time.Duration
+	InviteEnabled bool
 }
 
 type Request struct {
@@ -41,13 +44,15 @@ type Request struct {
 }
 
 type Manager struct {
-	log      *logger.Logger
-	accounts *account.Manager
-	provider Provider
-	friends  map[string][]Friend
-	mu       sync.RWMutex
-	notify   notifications.Manager
-	opts     Options
+	log        *logger.Logger
+	accounts   *account.Manager
+	provider   Provider
+	friends    map[string][]Friend
+	mu         sync.RWMutex
+	notify     notifications.Manager
+	opts       Options
+	inviteMu   sync.Mutex
+	lastInvite map[string]time.Time
 }
 
 func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider, notify notifications.Manager) *Manager {
@@ -57,12 +62,15 @@ func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider
 	if provider == nil {
 		provider = NewXboxProvider(nil)
 	}
-	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}, notify: notify}
+	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}, notify: notify, lastInvite: map[string]time.Time{}}
 }
 
 func (m *Manager) Configure(opts Options) {
 	if opts.SyncEvery <= 0 {
 		opts.SyncEvery = time.Minute
+	}
+	if opts.InviteEvery <= 0 {
+		opts.InviteEvery = time.Minute
 	}
 	m.opts = opts
 }
@@ -98,6 +106,10 @@ func (m *Manager) syncAndProcess(ctx context.Context) {
 
 	if m.opts.AutoAccept {
 		m.acceptPending(ctx)
+	}
+
+	if m.opts.InviteEnabled {
+		m.inviteFriends(ctx)
 	}
 }
 
@@ -174,8 +186,63 @@ func (m *Manager) acceptPending(ctx context.Context) {
 				name = r.XUID
 			}
 			m.log.Infof("accepted friend request from %s", name)
+			if m.opts.InviteEnabled {
+				if err := m.provider.SendInvite(ctx, acct, acct.SessionID(), r.XUID); err != nil {
+					m.log.Errorf("send invite to %s for %s: %v", name, acct.Gamertag(), err)
+				} else {
+					m.markInvited(acct.Gamertag(), r.XUID)
+				}
+			}
 		}
 	})
+}
+
+func (m *Manager) inviteFriends(ctx context.Context) {
+	m.accounts.WithAccounts(func(acct *account.Account) {
+		sessionID := acct.SessionID()
+		if sessionID == "" {
+			return
+		}
+		friends := m.Friends(acct.Gamertag())
+		for _, fr := range friends {
+			if fr.XUID == "" {
+				continue
+			}
+			if !m.shouldInvite(acct.Gamertag(), fr.XUID) {
+				continue
+			}
+			if err := m.provider.SendInvite(ctx, acct, sessionID, fr.XUID); err != nil {
+				m.log.Errorf("send invite to %s for %s: %v", fr.Gamertag, acct.Gamertag(), err)
+				continue
+			}
+			m.log.Debugf("sent invite to %s (%s) for %s", fr.Gamertag, fr.XUID, acct.Gamertag())
+			m.markInvited(acct.Gamertag(), fr.XUID)
+		}
+	})
+}
+
+func (m *Manager) shouldInvite(tag, xuid string) bool {
+	if m.opts.InviteEvery <= 0 {
+		return true
+	}
+	key := tag + ":" + xuid
+	m.inviteMu.Lock()
+	defer m.inviteMu.Unlock()
+	last, ok := m.lastInvite[key]
+	if !ok {
+		return true
+	}
+	return time.Since(last) >= m.opts.InviteEvery
+}
+
+func (m *Manager) markInvited(tag, xuid string) {
+	key := tag + ":" + xuid
+	m.inviteMu.Lock()
+	if m.lastInvite == nil {
+		m.lastInvite = map[string]time.Time{}
+	}
+	m.lastInvite[key] = time.Now()
+	m.inviteMu.Unlock()
 }
 
 func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {

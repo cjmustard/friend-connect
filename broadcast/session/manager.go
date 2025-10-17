@@ -1,7 +1,9 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +31,8 @@ type Manager struct {
 	subsessions map[string]*SubSession
 	subsMu      sync.RWMutex
 	httpClient  *http.Client
+	handles     map[string]bool
+	handleMu    sync.Mutex
 }
 
 type Options struct {
@@ -53,17 +57,70 @@ func NewManager(log *logger.Logger, accounts *account.Manager, httpClient *http.
 		accounts:    accounts,
 		conns:       map[string]*minecraft.Conn{},
 		subsessions: map[string]*SubSession{},
+		handles:     map[string]bool{},
 		httpClient:  httpClient,
 	}
 }
 
 func (m *Manager) Start(ctx context.Context) {
 	m.accounts.WithAccounts(func(acct *account.Account) {
+		m.ensureSessionHandle(ctx, acct)
 		if !acct.ShowAsOnline() {
 			return
 		}
 		go m.runPresence(ctx, acct)
 	})
+}
+
+func (m *Manager) ensureSessionHandle(ctx context.Context, acct *account.Account) {
+	sessionID := acct.SessionID()
+	if sessionID == "" {
+		return
+	}
+
+	m.handleMu.Lock()
+	if m.handles[sessionID] {
+		m.handleMu.Unlock()
+		return
+	}
+	m.handleMu.Unlock()
+
+	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	if err != nil {
+		m.log.Errorf("fetch token for handle %s: %v", acct.Gamertag(), err)
+		return
+	}
+
+	payload, err := json.Marshal(NewActivityHandle(sessionID))
+	if err != nil {
+		m.log.Errorf("marshal handle request for %s: %v", acct.Gamertag(), err)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, constants.CreateHandleURL, bytes.NewReader(payload))
+	if err != nil {
+		m.log.Errorf("build handle request for %s: %v", acct.Gamertag(), err)
+		return
+	}
+	req.Header.Set("Authorization", tok.Header)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-xbl-contract-version", "107")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		m.log.Errorf("create session handle for %s: %v", acct.Gamertag(), err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		m.log.Errorf("create session handle for %s: status %d: %s", acct.Gamertag(), resp.StatusCode, strings.TrimSpace(string(body)))
+		return
+	}
+
+	m.handleMu.Lock()
+	m.handles[sessionID] = true
+	m.handleMu.Unlock()
 }
 
 func (m *Manager) runPresence(ctx context.Context, acct *account.Account) {
