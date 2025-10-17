@@ -1,4 +1,4 @@
-package xbox
+package account
 
 import (
 	"context"
