@@ -13,6 +13,7 @@ import (
 	"github.com/cjmustard/consoleconnect/broadcast/friends"
 	"github.com/cjmustard/consoleconnect/broadcast/gallery"
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	"github.com/cjmustard/consoleconnect/broadcast/nether"
 	"github.com/cjmustard/consoleconnect/broadcast/notifications"
 	"github.com/cjmustard/consoleconnect/broadcast/ping"
 	"github.com/cjmustard/consoleconnect/broadcast/session"
@@ -28,6 +29,7 @@ type Service struct {
 	gallery       *gallery.Manager
 	storage       *storage.Manager
 	sessions      *session.Manager
+	nether        *nether.Manager
 	notifications notifications.Manager
 	pinger        *ping.Pinger
 	webServer     *web.Server
@@ -74,7 +76,9 @@ func New(opts Options) (*Service, error) {
 		return nil, fmt.Errorf("gallery: %w", err)
 	}
 
-	sessionMgr := session.NewManager(loggr, acctMgr, httpClient)
+	netherMgr := nether.NewManager(loggr, acctMgr)
+
+	sessionMgr := session.NewManager(loggr, acctMgr, netherMgr, httpClient)
 
 	var pinger *ping.Pinger
 	if opts.Ping.Enabled {
@@ -91,6 +95,7 @@ func New(opts Options) (*Service, error) {
 		sessions:      sessionMgr,
 		notifications: notify,
 		pinger:        pinger,
+		nether:        netherMgr,
 	}
 
 	srv.webServer = web.NewServer(loggr, acctMgr, sessionMgr, friendMgr, galleryMgr, srv.snapshotOptions)
@@ -118,6 +123,7 @@ func (s *Service) Run(ctx context.Context) error {
 
 	listenerProvider := minecraft.NewStatusProvider(s.opts.Listener.Name, s.opts.Listener.Message)
 
+	s.nether.Start(ctx)
 	s.sessions.Start(ctx)
 
 	go func() {

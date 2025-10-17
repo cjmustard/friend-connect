@@ -3,7 +3,6 @@ package session
 import (
 	"bytes"
 	"context"
-	crand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +23,7 @@ import (
 	"github.com/cjmustard/consoleconnect/broadcast/account"
 	"github.com/cjmustard/consoleconnect/broadcast/constants"
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	"github.com/cjmustard/consoleconnect/broadcast/nether"
 )
 
 type Manager struct {
@@ -39,6 +39,7 @@ type Manager struct {
 	handleMu    sync.Mutex
 	states      map[string]*sessionState
 	stateMu     sync.Mutex
+	nether      *nether.Manager
 }
 
 type Options struct {
@@ -54,7 +55,7 @@ type SubSession struct {
 	mu       sync.RWMutex
 }
 
-func NewManager(log *logger.Logger, accounts *account.Manager, httpClient *http.Client) *Manager {
+func NewManager(log *logger.Logger, accounts *account.Manager, netherMgr *nether.Manager, httpClient *http.Client) *Manager {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -66,6 +67,7 @@ func NewManager(log *logger.Logger, accounts *account.Manager, httpClient *http.
 		handles:     map[string]bool{},
 		httpClient:  httpClient,
 		states:      map[string]*sessionState{},
+		nether:      netherMgr,
 	}
 }
 
@@ -216,8 +218,21 @@ func (m *Manager) updatePresence(ctx context.Context, acct *account.Account) (ti
 
 func (m *Manager) ensureSession(ctx context.Context, acct *account.Account) error {
 	state := m.sessionState(acct)
+
+	if m.nether != nil {
+		netherID, err := m.nether.NetworkID(ctx, acct)
+		if err != nil {
+			return fmt.Errorf("nether network id: %w", err)
+		}
+		state.setNetherNetID(netherID)
+	}
+
 	if !state.needsSync() {
 		return nil
+	}
+
+	if state.netherNetID == nil {
+		return fmt.Errorf("nether network id unavailable")
 	}
 
 	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
@@ -342,18 +357,9 @@ func (m *Manager) sessionState(acct *account.Account) *sessionState {
 	state = &sessionState{
 		sessionID:    sessionID,
 		connectionID: uuid.NewString(),
-		netherNetID:  randomNetherNetID(),
 	}
 	m.states[sessionID] = state
 	return state
-}
-
-func randomNetherNetID() *big.Int {
-	b := make([]byte, 8)
-	if _, err := crand.Read(b); err != nil {
-		return big.NewInt(time.Now().UnixNano())
-	}
-	return new(big.Int).SetBytes(b)
 }
 
 func defaultHostName(gamertag string) string {
@@ -382,6 +388,9 @@ type sessionState struct {
 func (s *sessionState) needsSync() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.netherNetID == nil {
+		return true
+	}
 	if s.lastSync.IsZero() {
 		return true
 	}
@@ -392,6 +401,16 @@ func (s *sessionState) markSynced() {
 	s.mu.Lock()
 	s.lastSync = time.Now()
 	s.mu.Unlock()
+}
+
+func (s *sessionState) setNetherNetID(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.netherNetID != nil && s.netherNetID.Uint64() == id {
+		return
+	}
+	s.netherNetID = new(big.Int).SetUint64(id)
+	s.lastSync = time.Time{}
 }
 
 func (m *Manager) Listen(ctx context.Context, opts Options) error {

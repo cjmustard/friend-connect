@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/sandertv/gophertunnel/minecraft/auth/authclient"
 	"golang.org/x/oauth2"
 )
 
@@ -29,6 +30,7 @@ type TokenManager struct {
 	tokens   map[string]*Token
 	onUpdate func(*Token)
 	mu       sync.Mutex
+	client   *authclient.AuthClient
 }
 
 func NewTokenManager(refreshToken string, onUpdate func(*Token)) *TokenManager {
@@ -40,6 +42,7 @@ func NewTokenManager(refreshToken string, onUpdate func(*Token)) *TokenManager {
 		src:      auth.RefreshTokenSource(seed),
 		tokens:   map[string]*Token{},
 		onUpdate: onUpdate,
+		client:   authclient.DefaultClient,
 	}
 }
 
@@ -59,7 +62,7 @@ func (m *TokenManager) Acquire(ctx context.Context, relyingParty string) (*Token
 	if err != nil {
 		return nil, fmt.Errorf("obtain live token: %w", err)
 	}
-	xblToken, err := auth.RequestXBLToken(ctx, liveToken, relyingParty)
+	xblToken, err := auth.RequestXBLToken(ctx, m.client, liveToken, relyingParty)
 	if err != nil {
 		return nil, fmt.Errorf("request xbl token: %w", err)
 	}

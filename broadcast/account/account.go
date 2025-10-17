@@ -153,6 +153,12 @@ func (a *Account) PreferredIPs() []string {
 	return out
 }
 
+func (a *Account) RefreshToken() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.refreshToken
+}
+
 func (a *Account) SessionID() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
