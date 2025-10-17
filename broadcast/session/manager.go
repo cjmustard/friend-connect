@@ -471,7 +471,16 @@ func (m *Manager) handleConn(ctx context.Context, conn *minecraft.Conn) {
 		subs.SetMetadata("transferFlagged", true)
 	}
 
-	if err := conn.StartGame(m.gameDataFor(host)); err != nil {
+	gameData := m.gameDataFor(host)
+	if requireFlag {
+		if enriched, err := m.enrichGameData(ctx, conn, host, gameData); err != nil {
+			m.log.Warnf("load remote game data: %v", err)
+		} else {
+			gameData = enriched
+		}
+	}
+
+	if err := conn.StartGame(gameData); err != nil {
 		m.log.Errorf("start game: %v", err)
 		return
 	}
@@ -649,9 +658,65 @@ func (m *Manager) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
 }
 
 const (
-	relayCheckInterval  = 15 * time.Second
-	transferFlagTimeout = 20 * time.Second
+	relayCheckInterval    = 15 * time.Second
+	transferFlagTimeout   = 20 * time.Second
+	remoteGameDataTimeout = 15 * time.Second
 )
+
+func (m *Manager) enrichGameData(ctx context.Context, conn *minecraft.Conn, host *account.Account, base minecraft.GameData) (minecraft.GameData, error) {
+	if m.relay.RemoteAddress == "" {
+		return base, errors.New("relay remote address not configured")
+	}
+	if m.nether == nil {
+		return base, errors.New("nether manager unavailable")
+	}
+	src := m.nether.TokenSource(host)
+	if src == nil {
+		return base, errors.New("missing authentication for host")
+	}
+
+	timeout := m.relay.Timeout
+	if timeout <= 0 {
+		timeout = remoteGameDataTimeout
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	dialer := minecraft.Dialer{
+		TokenSource: src,
+		ClientData:  conn.ClientData(),
+	}
+	serverConn, err := dialer.DialContext(dialCtx, "raknet", m.relay.RemoteAddress)
+	if err != nil {
+		return base, fmt.Errorf("dial remote: %w", err)
+	}
+	defer serverConn.Close()
+
+	remote := serverConn.GameData()
+	if len(remote.Items) == 0 && len(remote.CustomBlocks) == 0 {
+		return base, fmt.Errorf("remote game data incomplete")
+	}
+
+	remote.EntityRuntimeID = base.EntityRuntimeID
+	remote.EntityUniqueID = base.EntityUniqueID
+	remote.PlayerPermissions = base.PlayerPermissions
+	remote.PlayerGameMode = base.PlayerGameMode
+	remote.WorldGameMode = base.WorldGameMode
+	remote.PlayerPosition = base.PlayerPosition
+	remote.WorldSpawn = base.WorldSpawn
+	if remote.WorldName == "" {
+		remote.WorldName = base.WorldName
+	}
+	if remote.BaseGameVersion == "" {
+		remote.BaseGameVersion = base.BaseGameVersion
+	}
+	if remote.ChunkRadius == 0 {
+		remote.ChunkRadius = base.ChunkRadius
+	}
+
+	return remote, nil
+}
 
 func (m *Manager) verifyRelayTarget(ctx context.Context, timeout time.Duration) error {
 	if m.relay.RemoteAddress == "" || !m.relay.VerifyTarget {

@@ -204,6 +204,20 @@ func (m *Manager) tokenSource(refresh string) oauth2.TokenSource {
 	return oauth2.ReuseTokenSource(seed, base)
 }
 
+// TokenSource returns an oauth2.TokenSource for the provided account using the
+// account's refresh token. If the account is nil or does not have a refresh
+// token available, nil is returned.
+func (m *Manager) TokenSource(acct *account.Account) oauth2.TokenSource {
+	if acct == nil {
+		return nil
+	}
+	refresh := acct.RefreshToken()
+	if refresh == "" {
+		return nil
+	}
+	return m.tokenSource(refresh)
+}
+
 func randomUint64() uint64 {
 	var b [8]byte
 	if _, err := crand.Read(b[:]); err == nil {
