@@ -1,0 +1,41 @@
+{
+  "xboxClientId": "",
+  "xboxClientSecret": "",
+  "accounts": [
+    {
+      "gamertag": "ExampleUser",
+      "refreshToken": "token-here",
+      "showAsOnline": true,
+      "preferredIps": ["0.0.0.0"]
+    }
+  ],
+  "storage": {
+    "directory": "data"
+  },
+  "friends": {
+    "autoAccept": true,
+    "autoAdd": true,
+    "syncTicker": "1m"
+  },
+  "http": {
+    "addr": ":8080",
+    "readTimeout": "5s",
+    "writeTimeout": "5s"
+  },
+  "ping": {
+    "enabled": false,
+    "target": "127.0.0.1:19132",
+    "period": "30s"
+  },
+  "gallery": {
+    "enabled": true,
+    "path": "gallery"
+  },
+  "notifications": {
+    "enabled": false,
+    "webhookUrl": "",
+    "sessionExpiredMessage": "Authenticate at %s using the code %s",
+    "friendRestrictionMessage": "Friend restriction detected for %s (%s)"
+  },
+  "customImages": {}
+}
