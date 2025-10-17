@@ -3,10 +3,12 @@ package session
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
@@ -14,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
@@ -33,6 +37,8 @@ type Manager struct {
 	httpClient  *http.Client
 	handles     map[string]bool
 	handleMu    sync.Mutex
+	states      map[string]*sessionState
+	stateMu     sync.Mutex
 }
 
 type Options struct {
@@ -59,17 +65,23 @@ func NewManager(log *logger.Logger, accounts *account.Manager, httpClient *http.
 		subsessions: map[string]*SubSession{},
 		handles:     map[string]bool{},
 		httpClient:  httpClient,
+		states:      map[string]*sessionState{},
 	}
 }
 
 func (m *Manager) Start(ctx context.Context) {
 	m.accounts.WithAccounts(func(acct *account.Account) {
+		if err := m.ensureSession(ctx, acct); err != nil {
+			m.log.Errorf("create session for %s: %v", acct.Gamertag(), err)
+			return
+		}
 		m.ensureSessionHandle(ctx, acct)
 		if !acct.ShowAsOnline() {
 			return
 		}
 		go m.runPresence(ctx, acct)
 	})
+	go m.refreshSessions(ctx)
 }
 
 func (m *Manager) ensureSessionHandle(ctx context.Context, acct *account.Account) {
@@ -158,6 +170,9 @@ func (m *Manager) runPresence(ctx context.Context, acct *account.Account) {
 }
 
 func (m *Manager) updatePresence(ctx context.Context, acct *account.Account) (time.Duration, error) {
+	if err := m.ensureSession(ctx, acct); err != nil {
+		m.log.Errorf("ensure session for %s: %v", acct.Gamertag(), err)
+	}
 	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
 	if err != nil {
 		return time.Minute, fmt.Errorf("token: %w", err)
@@ -197,6 +212,186 @@ func (m *Manager) updatePresence(ctx context.Context, acct *account.Account) (ti
 	})
 
 	return time.Duration(heartbeat) * time.Second, nil
+}
+
+func (m *Manager) ensureSession(ctx context.Context, acct *account.Account) error {
+	state := m.sessionState(acct)
+	if !state.needsSync() {
+		return nil
+	}
+
+	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	if err != nil {
+		return fmt.Errorf("token: %w", err)
+	}
+	if tok.XUID == "" {
+		return fmt.Errorf("missing xuid for %s", acct.Gamertag())
+	}
+
+	titleID, _ := strconv.Atoi(constants.TitleID)
+	payload := createSessionRequest{
+		Members: map[string]sessionMember{
+			"me": {
+				Constants: map[string]memberConstantsSystem{
+					"system": {
+						XUID:       tok.XUID,
+						Initialize: true,
+					},
+				},
+				Properties: map[string]memberPropertiesSystem{
+					"system": {
+						Active:     true,
+						Connection: state.connectionID,
+						Subscription: memberSubscription{
+							ID:          uuid.NewString(),
+							ChangeTypes: []string{"everything"},
+						},
+					},
+				},
+			},
+		},
+		Properties: sessionProperties{
+			System: sessionSystemProperties{
+				JoinRestriction: "followed",
+				ReadRestriction: "followed",
+				Closed:          false,
+			},
+			Custom: sessionCustomProperties{
+				BroadcastSetting:        3,
+				CrossPlayDisabled:       false,
+				Joinability:             "joinable_by_friends",
+				LanGame:                 false,
+				MaxMemberCount:          8,
+				MemberCount:             1,
+				OnlineCrossPlatformGame: true,
+				SupportedConnections: []sessionConnection{{
+					ConnectionType: constants.ConnectionTypeWebRTC,
+					HostIPAddress:  "",
+					HostPort:       0,
+					NetherNetID:    netherNetID{state.netherNetID},
+				}},
+				TitleID:        titleID,
+				TransportLayer: 2,
+				LevelID:        "level",
+				HostName:       defaultHostName(acct.Gamertag()),
+				OwnerID:        tok.XUID,
+				RakNetGUID:     "",
+				WorldName:      defaultWorldName(acct.Gamertag()),
+				WorldType:      "Survival",
+				Protocol:       protocol.CurrentProtocol,
+				Version:        protocol.CurrentVersion,
+				IsEditorWorld:  false,
+				IsHardcore:     false,
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode session payload: %w", err)
+	}
+
+	url := fmt.Sprintf(constants.CreateSessionURL, state.sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build session request: %w", err)
+	}
+	req.Header.Set("Authorization", tok.Header)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-xbl-contract-version", "107")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("create session request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("create session status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+
+	state.markSynced()
+	return nil
+}
+
+func (m *Manager) refreshSessions(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.accounts.WithAccounts(func(acct *account.Account) {
+				if err := m.ensureSession(ctx, acct); err != nil {
+					m.log.Errorf("refresh session for %s: %v", acct.Gamertag(), err)
+				}
+			})
+		}
+	}
+}
+
+func (m *Manager) sessionState(acct *account.Account) *sessionState {
+	sessionID := acct.SessionID()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	state, ok := m.states[sessionID]
+	if ok {
+		return state
+	}
+	state = &sessionState{
+		sessionID:    sessionID,
+		connectionID: uuid.NewString(),
+		netherNetID:  randomNetherNetID(),
+	}
+	m.states[sessionID] = state
+	return state
+}
+
+func randomNetherNetID() *big.Int {
+	b := make([]byte, 8)
+	if _, err := crand.Read(b); err != nil {
+		return big.NewInt(time.Now().UnixNano())
+	}
+	return new(big.Int).SetBytes(b)
+}
+
+func defaultHostName(gamertag string) string {
+	if gamertag == "" {
+		return "Console Connect"
+	}
+	return fmt.Sprintf("%s's World", gamertag)
+}
+
+func defaultWorldName(gamertag string) string {
+	if gamertag == "" {
+		return "Minecraft World"
+	}
+	return fmt.Sprintf("%s Realm", gamertag)
+}
+
+type sessionState struct {
+	sessionID    string
+	connectionID string
+	netherNetID  *big.Int
+
+	mu       sync.Mutex
+	lastSync time.Time
+}
+
+func (s *sessionState) needsSync() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lastSync.IsZero() {
+		return true
+	}
+	return time.Since(s.lastSync) > time.Minute
+}
+
+func (s *sessionState) markSynced() {
+	s.mu.Lock()
+	s.lastSync = time.Now()
+	s.mu.Unlock()
 }
 
 func (m *Manager) Listen(ctx context.Context, opts Options) error {
