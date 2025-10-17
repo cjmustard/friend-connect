@@ -64,6 +64,17 @@ type Manager struct {
 	relayCheck relayCheckState
 
 	entityIDs atomic.Uint64
+
+	ctx   context.Context
+	ctxMu sync.RWMutex
+
+	startedMu       sync.Mutex
+	startedAccounts map[string]struct{}
+
+	netherMu       sync.RWMutex
+	netherProvider minecraft.ServerStatusProvider
+	netherCtx      context.Context
+	netherAccounts map[string]struct{}
 }
 
 type Options struct {
@@ -100,15 +111,17 @@ func NewManager(log *logger.Logger, accounts *account.Manager, netherMgr *nether
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
 	return &Manager{
-		log:         log,
-		accounts:    accounts,
-		conns:       map[string]*minecraft.Conn{},
-		subsessions: map[string]*SubSession{},
-		httpClient:  httpClient,
-		nether:      netherMgr,
-		announcers:  map[string]*room.XBLAnnouncer{},
-		sessions:    map[string]*mpsd.Session{},
-		statusMeta:  map[string]*statusMetadata{},
+		log:             log,
+		accounts:        accounts,
+		conns:           map[string]*minecraft.Conn{},
+		subsessions:     map[string]*SubSession{},
+		httpClient:      httpClient,
+		nether:          netherMgr,
+		announcers:      map[string]*room.XBLAnnouncer{},
+		sessions:        map[string]*mpsd.Session{},
+		statusMeta:      map[string]*statusMetadata{},
+		startedAccounts: map[string]struct{}{},
+		netherAccounts:  map[string]struct{}{},
 	}
 }
 
@@ -120,16 +133,104 @@ func (m *Manager) ConfigureRelay(opts RelayOptions) {
 }
 
 func (m *Manager) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.setContext(ctx)
 	m.accounts.WithAccounts(func(acct *account.Account) {
+		m.startAccount(acct)
+	})
+	go m.refreshSessions(ctx)
+}
+
+func (m *Manager) setContext(ctx context.Context) {
+	m.ctxMu.Lock()
+	m.ctx = ctx
+	m.ctxMu.Unlock()
+}
+
+func (m *Manager) sessionContext() context.Context {
+	m.ctxMu.RLock()
+	ctx := m.ctx
+	m.ctxMu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (m *Manager) startAccount(acct *account.Account) {
+	if acct == nil {
+		return
+	}
+	id := acct.SessionID()
+	m.startedMu.Lock()
+	if _, ok := m.startedAccounts[id]; ok {
+		m.startedMu.Unlock()
+		return
+	}
+	m.startedAccounts[id] = struct{}{}
+	m.startedMu.Unlock()
+
+	ctx := m.sessionContext()
+	go func() {
 		if err := m.ensureSession(ctx, acct); err != nil {
 			m.log.Errorf("create session for %s: %v", acct.Gamertag(), err)
 		}
-		if !acct.ShowAsOnline() {
-			return
-		}
+	}()
+	if acct.ShowAsOnline() {
 		go m.runPresence(ctx, acct)
-	})
-	go m.refreshSessions(ctx)
+	}
+}
+
+func (m *Manager) AttachAccount(ctx context.Context, acct *account.Account) {
+	if acct == nil {
+		return
+	}
+	if ctx != nil {
+		m.setContext(ctx)
+	}
+	m.startAccount(acct)
+	provider, providerCtx := m.netherRuntime()
+	if provider != nil && m.nether != nil {
+		if providerCtx == nil {
+			providerCtx = m.sessionContext()
+		}
+		m.startNetherForAccount(providerCtx, provider, acct)
+	}
+}
+
+func (m *Manager) setNetherRuntime(ctx context.Context, provider minecraft.ServerStatusProvider) {
+	m.netherMu.Lock()
+	m.netherCtx = ctx
+	m.netherProvider = provider
+	m.netherMu.Unlock()
+}
+
+func (m *Manager) netherRuntime() (minecraft.ServerStatusProvider, context.Context) {
+	m.netherMu.RLock()
+	provider := m.netherProvider
+	ctx := m.netherCtx
+	m.netherMu.RUnlock()
+	return provider, ctx
+}
+
+func (m *Manager) startNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
+	if acct == nil || provider == nil || m.nether == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = m.sessionContext()
+	}
+	id := acct.SessionID()
+	m.netherMu.Lock()
+	if _, ok := m.netherAccounts[id]; ok {
+		m.netherMu.Unlock()
+		return
+	}
+	m.netherAccounts[id] = struct{}{}
+	m.netherMu.Unlock()
+	go m.listenNetherForAccount(ctx, provider, acct)
 }
 
 func (m *Manager) runPresence(ctx context.Context, acct *account.Account) {
@@ -301,17 +402,11 @@ func (m *Manager) buildStatus(ctx context.Context, acct *account.Account, tok *x
 	if m.listener != nil {
 		port, guid := m.listenerInfo()
 		if port != 0 {
-			for _, ip := range acct.PreferredIPs() {
-				if ip == "" {
-					continue
-				}
-				status.SupportedConnections = append(status.SupportedConnections, room.Connection{
-					ConnectionType: room.ConnectionTypeUPNP,
-					HostIPAddress:  ip,
-					HostPort:       port,
-					RakNetGUID:     guid,
-				})
-			}
+			status.SupportedConnections = append(status.SupportedConnections, room.Connection{
+				ConnectionType: room.ConnectionTypeUPNP,
+				HostPort:       port,
+				RakNetGUID:     guid,
+			})
 			if status.TransportLayer == 0 {
 				status.TransportLayer = room.TransportLayerRakNet
 			}
@@ -448,11 +543,12 @@ func (m *Manager) listenNether(ctx context.Context, provider minecraft.ServerSta
 	if m.accounts == nil || m.nether == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.setNetherRuntime(ctx, provider)
 	m.accounts.WithAccounts(func(acct *account.Account) {
-		if acct == nil {
-			return
-		}
-		go m.listenNetherForAccount(ctx, provider, acct)
+		m.startNetherForAccount(ctx, provider, acct)
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/cjmustard/consoleconnect/broadcast/constants"
 	"github.com/cjmustard/consoleconnect/broadcast/xbox"
 )
 
@@ -23,7 +24,6 @@ type Options struct {
 	Gamertag     string
 	RefreshToken string
 	ShowAsOnline bool
-	PreferredIPs []string
 }
 
 type Account struct {
@@ -33,7 +33,6 @@ type Account struct {
 	gamertag     string
 	refreshToken string
 	showOnline   bool
-	preferredIPs []string
 	sessionID    string
 
 	status   Status
@@ -64,7 +63,6 @@ func (m *Manager) Register(ctx context.Context, opts Options) (*Account, error) 
 		gamertag:     opts.Gamertag,
 		refreshToken: opts.RefreshToken,
 		showOnline:   opts.ShowAsOnline,
-		preferredIPs: append([]string(nil), opts.PreferredIPs...),
 		sessionID:    uuid.NewString(),
 		status:       StatusOffline,
 		lastSeen:     time.Now(),
@@ -77,6 +75,15 @@ func (m *Manager) Register(ctx context.Context, opts Options) (*Account, error) 
 	m.mu.Lock()
 	m.accounts[acct.gamertag] = acct
 	m.mu.Unlock()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if acct.tokenMgr != nil {
+		if tok, err := acct.tokenMgr.Acquire(ctx, constants.RelyingPartyXboxLive); err == nil {
+			m.applyToken(acct, tok)
+		}
+	}
 	return acct, nil
 }
 
@@ -145,14 +152,6 @@ func (a *Account) ShowAsOnline() bool {
 	return a.showOnline
 }
 
-func (a *Account) PreferredIPs() []string {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	out := make([]string, len(a.preferredIPs))
-	copy(out, a.preferredIPs)
-	return out
-}
-
 func (a *Account) RefreshToken() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -198,7 +197,6 @@ func (a *Account) Snapshot() Account {
 	for k, v := range a.metadata {
 		copy.metadata[k] = v
 	}
-	copy.preferredIPs = append([]string(nil), a.preferredIPs...)
 	return copy
 }
 

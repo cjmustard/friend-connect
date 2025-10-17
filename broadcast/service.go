@@ -38,7 +38,6 @@ func New(opts Options) (*Service, error) {
 			Gamertag:     acct.Gamertag,
 			RefreshToken: acct.RefreshToken,
 			ShowAsOnline: acct.ShowAsOnline,
-			PreferredIPs: acct.PreferredIPs,
 		}); err != nil {
 			return nil, fmt.Errorf("register account %s: %w", acct.Gamertag, err)
 		}
@@ -79,6 +78,33 @@ func (s *Service) Options() Options {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.opts
+}
+
+func (s *Service) AddAccount(ctx context.Context, opts AccountOptions) (*account.Account, error) {
+	if s.accounts == nil {
+		return nil, fmt.Errorf("account manager unavailable")
+	}
+	acct, err := s.accounts.Register(ctx, account.Options{
+		Gamertag:     opts.Gamertag,
+		RefreshToken: opts.RefreshToken,
+		ShowAsOnline: opts.ShowAsOnline,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("register account %s: %w", opts.Gamertag, err)
+	}
+
+	s.mu.RLock()
+	started := s.started
+	s.mu.RUnlock()
+	if started {
+		if s.nether != nil {
+			s.nether.AttachAccount(acct)
+		}
+		if s.sessions != nil {
+			s.sessions.AttachAccount(ctx, acct)
+		}
+	}
+	return acct, nil
 }
 
 func (s *Service) Run(ctx context.Context) error {

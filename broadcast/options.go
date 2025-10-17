@@ -3,19 +3,16 @@ package broadcast
 import "time"
 
 type Options struct {
-	XboxClientID     string
-	XboxClientSecret string
-	Accounts         []AccountOptions
-	Friends          FriendOptions
-	Listener         ListenerOptions
-	Relay            RelayOptions
+	Accounts []AccountOptions
+	Friends  FriendOptions
+	Listener ListenerOptions
+	Relay    RelayOptions
 }
 
 type AccountOptions struct {
 	Gamertag     string
 	RefreshToken string
 	ShowAsOnline bool
-	PreferredIPs []string
 }
 
 type FriendOptions struct {

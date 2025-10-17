@@ -23,7 +23,6 @@ func main() {
 				Gamertag:     "LumineProxy",
 				RefreshToken: refresh,
 				ShowAsOnline: true,
-				PreferredIPs: []string{"0.0.0.0"},
 			},
 		},
 		Friends: broadcast.FriendOptions{

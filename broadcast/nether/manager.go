@@ -32,6 +32,9 @@ type Manager struct {
 	pending chan *Session
 
 	networkMu sync.Mutex
+
+	ctx   context.Context
+	ctxMu sync.RWMutex
 }
 
 type Session struct {
@@ -43,6 +46,8 @@ type Session struct {
 
 	ready     chan struct{}
 	readyOnce sync.Once
+
+	startOnce sync.Once
 
 	mu               sync.Mutex
 	pendingTransfers int
@@ -108,9 +113,48 @@ func (m *Manager) Start(ctx context.Context) {
 	if m.accounts == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.setContext(ctx)
 	m.accounts.WithAccounts(func(acct *account.Account) {
-		sess := m.sessionFor(acct)
-		go m.runSession(ctx, acct, sess)
+		m.startSession(acct)
+	})
+}
+
+func (m *Manager) AttachAccount(acct *account.Account) {
+	if acct == nil {
+		return
+	}
+	m.startSession(acct)
+}
+
+func (m *Manager) setContext(ctx context.Context) {
+	m.ctxMu.Lock()
+	m.ctx = ctx
+	m.ctxMu.Unlock()
+}
+
+func (m *Manager) sessionContext() context.Context {
+	m.ctxMu.RLock()
+	ctx := m.ctx
+	m.ctxMu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (m *Manager) startSession(acct *account.Account) {
+	if acct == nil {
+		return
+	}
+	sess := m.sessionFor(acct)
+	if sess == nil {
+		return
+	}
+	sess.startOnce.Do(func() {
+		go m.runSession(m.sessionContext(), acct, sess)
 	})
 }
 
