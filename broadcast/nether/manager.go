@@ -5,11 +5,14 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
+	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/auth/authclient"
 	"github.com/sandertv/gophertunnel/minecraft/auth/franchise/signaling"
@@ -27,19 +30,27 @@ type Manager struct {
 	sessions map[string]*Session
 
 	pending chan *Session
+
+	networkMu sync.Mutex
 }
 
 type Session struct {
 	manager *Manager
 	account *account.Account
 
-	networkID uint64
+	networkID   uint64
+	networkName string
 
 	ready     chan struct{}
 	readyOnce sync.Once
 
 	mu               sync.Mutex
 	pendingTransfers int
+
+	sigMu           sync.RWMutex
+	signaling       nethernet.Signaling
+	signalingDone   <-chan struct{}
+	signalingNotify chan struct{}
 }
 
 type notifier struct {
@@ -116,6 +127,58 @@ func (m *Manager) NetworkID(ctx context.Context, acct *account.Account) (uint64,
 	}
 }
 
+func (m *Manager) NetworkName(acct *account.Account) string {
+	if acct == nil {
+		return ""
+	}
+	sess := m.sessionFor(acct)
+	if sess == nil {
+		return ""
+	}
+	return sess.network()
+}
+
+func (m *Manager) WaitSignaling(ctx context.Context, acct *account.Account) (nethernet.Signaling, <-chan struct{}, error) {
+	if acct == nil {
+		return nil, nil, errors.New("nil account")
+	}
+	sess := m.sessionFor(acct)
+	if sess == nil {
+		return nil, nil, errors.New("session unavailable")
+	}
+
+	select {
+	case <-sess.ready:
+	default:
+		select {
+		case <-sess.ready:
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+	}
+
+	for {
+		sig, done := sess.signalingState()
+		if sig != nil {
+			return sig, done, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-sess.signalingNotify:
+		}
+	}
+}
+
+func (m *Manager) RegisterNetwork(name string, factory func(*slog.Logger) minecraft.Network) {
+	if name == "" || factory == nil {
+		return
+	}
+	m.networkMu.Lock()
+	minecraft.RegisterNetwork(name, factory)
+	m.networkMu.Unlock()
+}
+
 func (m *Manager) sessionFor(acct *account.Account) *Session {
 	if acct == nil {
 		return nil
@@ -128,10 +191,12 @@ func (m *Manager) sessionFor(acct *account.Account) *Session {
 		return sess
 	}
 	sess := &Session{
-		manager:   m,
-		account:   acct,
-		networkID: randomUint64(),
-		ready:     make(chan struct{}),
+		manager:         m,
+		account:         acct,
+		networkID:       randomUint64(),
+		networkName:     fmt.Sprintf("nethernet:%s", acct.SessionID()),
+		ready:           make(chan struct{}),
+		signalingNotify: make(chan struct{}, 1),
 	}
 	m.sessions[id] = sess
 	return sess
@@ -175,20 +240,23 @@ func (m *Manager) runSession(ctx context.Context, acct *account.Account, sess *S
 		}
 
 		backoff = 5 * time.Second
+		done := make(chan struct{})
+		sess.setSignaling(conn, done)
 		sess.readyOnce.Do(func() { close(sess.ready) })
 		m.log.Infof("nethernet signaling ready for %s (network %d)", acct.Gamertag(), sess.networkID)
 
-		done := make(chan struct{})
 		stop := conn.Notify(&notifier{done: done, log: m.log, tag: acct.Gamertag(), sess: sess})
 
 		select {
 		case <-ctx.Done():
 			stop()
 			_ = conn.Close()
+			sess.setSignaling(nil, nil)
 			return
 		case <-done:
 			stop()
 			_ = conn.Close()
+			sess.setSignaling(nil, nil)
 			if ctx.Err() != nil {
 				return
 			}
@@ -224,6 +292,35 @@ func randomUint64() uint64 {
 		return binary.BigEndian.Uint64(b[:])
 	}
 	return rand.Uint64()
+}
+
+func (s *Session) setSignaling(sig nethernet.Signaling, done <-chan struct{}) {
+	if s == nil {
+		return
+	}
+	s.sigMu.Lock()
+	s.signaling = sig
+	s.signalingDone = done
+	s.sigMu.Unlock()
+	if s.signalingNotify != nil {
+		select {
+		case s.signalingNotify <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *Session) signalingState() (nethernet.Signaling, <-chan struct{}) {
+	s.sigMu.RLock()
+	defer s.sigMu.RUnlock()
+	return s.signaling, s.signalingDone
+}
+
+func (s *Session) network() string {
+	if s == nil {
+		return ""
+	}
+	return s.networkName
 }
 
 func (s *Session) flagTransfer() {

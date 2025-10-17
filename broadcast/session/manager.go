@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-xsapi"
 	"github.com/df-mc/go-xsapi/mpsd"
 	"github.com/go-gl/mathgl/mgl32"
@@ -396,6 +398,9 @@ func (m *Manager) Listen(ctx context.Context, opts Options) error {
 
 	m.listener = listener
 	m.captureListenerInfo(listener)
+	if m.nether != nil {
+		go m.listenNether(ctx, opts.Provider)
+	}
 	go func() {
 		<-ctx.Done()
 		listener.Close()
@@ -437,6 +442,116 @@ func (m *Manager) captureListenerInfo(listener *minecraft.Listener) {
 			m.log.Errorf("update session for %s: %v", acct.Gamertag(), err)
 		}
 	})
+}
+
+func (m *Manager) listenNether(ctx context.Context, provider minecraft.ServerStatusProvider) {
+	if m.accounts == nil || m.nether == nil {
+		return
+	}
+	m.accounts.WithAccounts(func(acct *account.Account) {
+		if acct == nil {
+			return
+		}
+		go m.listenNetherForAccount(ctx, provider, acct)
+	})
+}
+
+func (m *Manager) listenNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
+	if acct == nil || m.nether == nil {
+		return
+	}
+	networkName := m.nether.NetworkName(acct)
+	if networkName == "" {
+		networkName = fmt.Sprintf("nethernet:%s", acct.SessionID())
+	}
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		sig, done, err := m.nether.WaitSignaling(ctx, acct)
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				return
+			}
+			m.log.Errorf("wait nether signaling for %s: %v", acct.Gamertag(), err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if sig == nil {
+			continue
+		}
+
+		doneCh := done
+		if doneCh == nil {
+			doneCh = ctx.Done()
+		}
+
+		m.nether.RegisterNetwork(networkName, func(l *slog.Logger) minecraft.Network {
+			if l == nil {
+				l = slog.Default()
+			}
+			l = l.With(slog.String("network", networkName))
+			if acct != nil {
+				l = l.With(slog.String("gamertag", acct.Gamertag()))
+			}
+			return minecraft.NetherNet{
+				Signaling: sig,
+				ListenConfig: nethernet.ListenConfig{
+					Log: l,
+				},
+			}
+		})
+
+		listener, err := minecraft.ListenConfig{
+			StatusProvider: provider,
+			PacketFunc:     m.handlePackets,
+		}.Listen(networkName, "")
+		if err != nil {
+			m.log.Errorf("listen nether for %s: %v", acct.Gamertag(), err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-doneCh:
+			}
+			continue
+		}
+
+		m.log.Infof("nether listener ready for %s (network %d)", acct.Gamertag(), sig.NetworkID())
+
+		acceptCtx, cancel := context.WithCancel(ctx)
+		go func() {
+			select {
+			case <-doneCh:
+			case <-ctx.Done():
+			}
+			cancel()
+			_ = listener.Close()
+		}()
+
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) || acceptCtx.Err() != nil {
+					break
+				}
+				m.log.Errorf("accept nether connection: %v", err)
+				continue
+			}
+			m.log.Debugf("nether client connected: %s", conn.RemoteAddr())
+			go m.handleConn(acceptCtx, conn.(*minecraft.Conn))
+		}
+
+		cancel()
+		_ = listener.Close()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-doneCh:
+			m.log.Warnf("nether listener for %s stopped, awaiting reconnection", acct.Gamertag())
+		}
+	}
 }
 
 func (m *Manager) handleConn(ctx context.Context, conn *minecraft.Conn) {
@@ -486,19 +601,20 @@ func (m *Manager) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	}
 
 	clientData := conn.ClientData()
+	identity := conn.IdentityData()
 	if subs != nil {
 		if name := clientData.ThirdPartyName; name != "" {
 			subs.SetMetadata("clientGamertag", name)
 		}
-		if clientData.XUID != "" {
-			subs.SetMetadata("clientXUID", clientData.XUID)
+		if identity.XUID != "" {
+			subs.SetMetadata("clientXUID", identity.XUID)
 		}
 	}
 
 	if m.relay.RemoteAddress != "" {
 		clientName := clientData.ThirdPartyName
 		if clientName == "" {
-			clientName = conn.IdentityData().DisplayName
+			clientName = identity.DisplayName
 		}
 		if host != nil {
 			m.log.Infof("transferring %s to %s for %s", clientName, m.relay.RemoteAddress, host.Gamertag())
