@@ -14,21 +14,21 @@ Java service features such as:
 
 ## Getting started
 
-The project now centres around the exported `minecraft` package. Create an
-`Options` struct, pass in the accounts and features you need, then start the
-service:
+The project now centres around the root `consoleconnect` package. Create an
+`Options` struct, populate it with the accounts and features you need, then
+start the service:
 
 ```go
-opts := minecraft.Options{
-    Accounts: []minecraft.AccountOptions{
+opts := consoleconnect.Options{
+    Accounts: []consoleconnect.AccountOptions{
         {Gamertag: "CJMustard1452", RefreshToken: "..."},
     },
-    Storage: minecraft.StorageOptions{Directory: "data"},
-    Friends: minecraft.FriendOptions{AutoAccept: true, AutoAdd: true},
+    Storage: consoleconnect.StorageOptions{Directory: "data"},
+    Friends: consoleconnect.FriendOptions{AutoAccept: true, AutoAdd: true},
 }
 opts.ApplyDefaults()
 
-svc, err := minecraft.New(opts)
+svc, err := consoleconnect.New(opts)
 if err != nil {
     log.Fatalf("initialise broadcaster: %v", err)
 }
@@ -37,20 +37,17 @@ if err := svc.Run(context.Background()); err != nil {
 }
 ```
 
-A helper `minecraft.LoadOptions` is available when you want to hydrate the
-same structure from JSON. The schema mirrors `config.example.json`.
-
 ## CLI daemon
 
-An example daemon is available in `cmd/broadcasterd`. It accepts an optional
-`-config` flag pointing to a JSON file and a `-listen` flag to override the
-Bedrock listener address. The daemon is only a thin wrapper around the exported
-module, making it easy to embed the broadcaster in other applications.
+An example daemon is available in `cmd/broadcasterd`. It exposes a `-listen`
+flag to override the Bedrock listener address and otherwise uses the default
+options provided by the package. The daemon is only a thin wrapper around the
+exported module, making it easy to embed the broadcaster in other applications.
 
 Run it with:
 
 ```bash
-GO111MODULE=on go run ./cmd/broadcasterd -config config.json
+GO111MODULE=on go run ./cmd/broadcasterd
 ```
 
 ## Tests

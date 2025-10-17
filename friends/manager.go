@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cjmustard/console-connect/minecraft/account"
-	"github.com/cjmustard/console-connect/minecraft/logger"
-	"github.com/cjmustard/console-connect/minecraft/notifications"
+	"github.com/cjmustard/console-connect/account"
+	"github.com/cjmustard/console-connect/logger"
+	"github.com/cjmustard/console-connect/notifications"
 )
 
 type Friend struct {

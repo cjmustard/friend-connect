@@ -7,6 +7,7 @@ toolchain go1.24.3
 require (
 	github.com/gorilla/mux v1.8.1
 	github.com/sandertv/gophertunnel v1.50.1
+	golang.org/x/oauth2 v0.23.0
 )
 
 require (
@@ -19,6 +20,5 @@ require (
 	github.com/sandertv/go-raknet v1.14.3-0.20250305181847-6af3e95113d6 // indirect
 	golang.org/x/image v0.21.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/oauth2 v0.23.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )

@@ -1,4 +1,4 @@
-package minecraft
+package consoleconnect
 
 import (
 	"context"
@@ -8,15 +8,15 @@ import (
 
 	"github.com/sandertv/gophertunnel/minecraft"
 
-	"github.com/cjmustard/console-connect/minecraft/account"
-	"github.com/cjmustard/console-connect/minecraft/friends"
-	"github.com/cjmustard/console-connect/minecraft/gallery"
-	"github.com/cjmustard/console-connect/minecraft/logger"
-	"github.com/cjmustard/console-connect/minecraft/notifications"
-	"github.com/cjmustard/console-connect/minecraft/ping"
-	"github.com/cjmustard/console-connect/minecraft/session"
-	"github.com/cjmustard/console-connect/minecraft/storage"
-	"github.com/cjmustard/console-connect/minecraft/web"
+	"github.com/cjmustard/console-connect/account"
+	"github.com/cjmustard/console-connect/friends"
+	"github.com/cjmustard/console-connect/gallery"
+	"github.com/cjmustard/console-connect/logger"
+	"github.com/cjmustard/console-connect/notifications"
+	"github.com/cjmustard/console-connect/ping"
+	"github.com/cjmustard/console-connect/session"
+	"github.com/cjmustard/console-connect/storage"
+	"github.com/cjmustard/console-connect/web"
 )
 
 type Service struct {

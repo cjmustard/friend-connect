@@ -11,8 +11,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
-	"github.com/cjmustard/console-connect/minecraft/account"
-	"github.com/cjmustard/console-connect/minecraft/logger"
+	"github.com/cjmustard/console-connect/account"
+	"github.com/cjmustard/console-connect/logger"
 )
 
 type Manager struct {

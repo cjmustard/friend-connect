@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cjmustard/console-connect/minecraft/account"
-	"github.com/cjmustard/console-connect/minecraft/storage"
+	"github.com/cjmustard/console-connect/account"
+	"github.com/cjmustard/console-connect/storage"
 )
 
 type StoredProvider struct {

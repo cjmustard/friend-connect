@@ -8,11 +8,11 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cjmustard/console-connect/minecraft/account"
-	"github.com/cjmustard/console-connect/minecraft/friends"
-	"github.com/cjmustard/console-connect/minecraft/gallery"
-	"github.com/cjmustard/console-connect/minecraft/logger"
-	"github.com/cjmustard/console-connect/minecraft/session"
+	"github.com/cjmustard/console-connect/account"
+	"github.com/cjmustard/console-connect/friends"
+	"github.com/cjmustard/console-connect/gallery"
+	"github.com/cjmustard/console-connect/logger"
+	"github.com/cjmustard/console-connect/session"
 )
 
 type Server struct {

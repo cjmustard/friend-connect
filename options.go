@@ -1,9 +1,9 @@
-package minecraft
+package consoleconnect
 
 import (
 	"time"
 
-	"github.com/cjmustard/console-connect/minecraft/notifications"
+	"github.com/cjmustard/console-connect/notifications"
 )
 
 type Options struct {
