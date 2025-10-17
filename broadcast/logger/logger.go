@@ -10,7 +10,9 @@ import (
 type Level int
 
 const (
-	LevelInfo Level = iota
+	LevelError Level = iota
+	LevelWarn
+	LevelInfo
 	LevelDebug
 	LevelTrace
 )
@@ -23,7 +25,7 @@ type Logger struct {
 }
 
 func New() *Logger {
-	return &Logger{std: log.New(os.Stdout, "", log.LstdFlags)}
+	return &Logger{std: log.New(os.Stdout, "", log.LstdFlags), level: LevelInfo}
 }
 
 func (l *Logger) Prefixed(prefix string) *Logger {
@@ -52,11 +54,11 @@ func (l *Logger) Info(format string, args ...any) {
 }
 
 func (l *Logger) Warn(format string, args ...any) {
-	l.output(LevelInfo, "WARN", format, args...)
+	l.output(LevelWarn, "WARN", format, args...)
 }
 
 func (l *Logger) Error(format string, args ...any) {
-	l.output(LevelInfo, "ERROR", format, args...)
+	l.output(LevelError, "ERROR", format, args...)
 }
 
 func (l *Logger) Warnf(format string, args ...any) {
@@ -77,7 +79,7 @@ func (l *Logger) Errorf(format string, args ...any) {
 
 func (l *Logger) ErrorErr(err error, message string, args ...any) {
 	args = append(args, err)
-	l.output(LevelInfo, "ERROR", message+": %v", args...)
+	l.output(LevelError, "ERROR", message+": %v", args...)
 }
 
 func (l *Logger) Debug(format string, args ...any) {

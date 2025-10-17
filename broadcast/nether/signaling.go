@@ -22,14 +22,14 @@ import (
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
 )
 
-type Manager struct {
+type SignalingHub struct {
 	log      *logger.Logger
 	accounts *account.Manager
 
 	mu       sync.Mutex
-	sessions map[string]*Session
+	sessions map[string]*SignalingSession
 
-	pending chan *Session
+	pending chan *SignalingSession
 
 	networkMu sync.Mutex
 
@@ -37,8 +37,8 @@ type Manager struct {
 	ctxMu sync.RWMutex
 }
 
-type Session struct {
-	manager *Manager
+type SignalingSession struct {
+	manager *SignalingHub
 	account *account.Account
 
 	networkID   uint64
@@ -63,7 +63,7 @@ type notifier struct {
 	once sync.Once
 	log  *logger.Logger
 	tag  string
-	sess *Session
+	sess *SignalingSession
 }
 
 func (n *notifier) NotifySignal(signal *nethernet.Signal) {
@@ -73,12 +73,12 @@ func (n *notifier) NotifySignal(signal *nethernet.Signal) {
 
 	switch signal.Type {
 	case nethernet.SignalTypeOffer:
-		n.log.Infof("nethernet connection request for %s (connection %d, network %d)", n.tag, signal.ConnectionID, signal.NetworkID)
+		n.log.Debugf("nethernet connection request for %s (connection %d, network %d)", n.tag, signal.ConnectionID, signal.NetworkID)
 		if n.sess != nil {
 			n.sess.flagTransfer()
 		}
 	case nethernet.SignalTypeAnswer:
-		n.log.Infof("nethernet connection established for %s (connection %d)", n.tag, signal.ConnectionID)
+		n.log.Debugf("nethernet connection established for %s (connection %d)", n.tag, signal.ConnectionID)
 	case nethernet.SignalTypeError:
 		if signal.Data != "" {
 			n.log.Warnf("nethernet connection error for %s (connection %d): %s", n.tag, signal.ConnectionID, signal.Data)
@@ -97,68 +97,68 @@ func (n *notifier) NotifyError(err error) {
 	n.once.Do(func() { close(n.done) })
 }
 
-func NewManager(log *logger.Logger, accounts *account.Manager) *Manager {
+func NewHub(log *logger.Logger, accounts *account.Manager) *SignalingHub {
 	if log == nil {
 		log = logger.New()
 	}
-	return &Manager{
+	return &SignalingHub{
 		log:      log,
 		accounts: accounts,
-		sessions: map[string]*Session{},
-		pending:  make(chan *Session, 32),
+		sessions: map[string]*SignalingSession{},
+		pending:  make(chan *SignalingSession, 32),
 	}
 }
 
-func (m *Manager) Start(ctx context.Context) {
-	if m.accounts == nil {
+func (h *SignalingHub) Start(ctx context.Context) {
+	if h.accounts == nil {
 		return
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	m.setContext(ctx)
-	m.accounts.WithAccounts(func(acct *account.Account) {
-		m.startSession(acct)
+	h.setContext(ctx)
+	h.accounts.WithAccounts(func(acct *account.Account) {
+		h.startSession(acct)
 	})
 }
 
-func (m *Manager) AttachAccount(acct *account.Account) {
+func (h *SignalingHub) AttachAccount(acct *account.Account) {
 	if acct == nil {
 		return
 	}
-	m.startSession(acct)
+	h.startSession(acct)
 }
 
-func (m *Manager) setContext(ctx context.Context) {
-	m.ctxMu.Lock()
-	m.ctx = ctx
-	m.ctxMu.Unlock()
+func (h *SignalingHub) setContext(ctx context.Context) {
+	h.ctxMu.Lock()
+	h.ctx = ctx
+	h.ctxMu.Unlock()
 }
 
-func (m *Manager) sessionContext() context.Context {
-	m.ctxMu.RLock()
-	ctx := m.ctx
-	m.ctxMu.RUnlock()
+func (h *SignalingHub) sessionContext() context.Context {
+	h.ctxMu.RLock()
+	ctx := h.ctx
+	h.ctxMu.RUnlock()
 	if ctx == nil {
 		return context.Background()
 	}
 	return ctx
 }
 
-func (m *Manager) startSession(acct *account.Account) {
+func (h *SignalingHub) startSession(acct *account.Account) {
 	if acct == nil {
 		return
 	}
-	sess := m.sessionFor(acct)
+	sess := h.sessionFor(acct)
 	if sess == nil {
 		return
 	}
 	sess.startOnce.Do(func() {
-		go m.runSession(m.sessionContext(), acct, sess)
+		go h.runSession(h.sessionContext(), acct, sess)
 	})
 }
 
-func (m *Manager) NetworkID(ctx context.Context, acct *account.Account) (uint64, error) {
+func (m *SignalingHub) NetworkID(ctx context.Context, acct *account.Account) (uint64, error) {
 	if acct == nil {
 		return 0, errors.New("nil account")
 	}
@@ -171,7 +171,7 @@ func (m *Manager) NetworkID(ctx context.Context, acct *account.Account) (uint64,
 	}
 }
 
-func (m *Manager) NetworkName(acct *account.Account) string {
+func (m *SignalingHub) NetworkName(acct *account.Account) string {
 	if acct == nil {
 		return ""
 	}
@@ -182,7 +182,7 @@ func (m *Manager) NetworkName(acct *account.Account) string {
 	return sess.network()
 }
 
-func (m *Manager) WaitSignaling(ctx context.Context, acct *account.Account) (nethernet.Signaling, <-chan struct{}, error) {
+func (m *SignalingHub) WaitSignaling(ctx context.Context, acct *account.Account) (nethernet.Signaling, <-chan struct{}, error) {
 	if acct == nil {
 		return nil, nil, errors.New("nil account")
 	}
@@ -214,7 +214,7 @@ func (m *Manager) WaitSignaling(ctx context.Context, acct *account.Account) (net
 	}
 }
 
-func (m *Manager) RegisterNetwork(name string, factory func(*slog.Logger) minecraft.Network) {
+func (m *SignalingHub) RegisterNetwork(name string, factory func(*slog.Logger) minecraft.Network) {
 	if name == "" || factory == nil {
 		return
 	}
@@ -223,7 +223,7 @@ func (m *Manager) RegisterNetwork(name string, factory func(*slog.Logger) minecr
 	m.networkMu.Unlock()
 }
 
-func (m *Manager) sessionFor(acct *account.Account) *Session {
+func (m *SignalingHub) sessionFor(acct *account.Account) *SignalingSession {
 	if acct == nil {
 		return nil
 	}
@@ -234,7 +234,7 @@ func (m *Manager) sessionFor(acct *account.Account) *Session {
 		sess.manager = m
 		return sess
 	}
-	sess := &Session{
+	sess := &SignalingSession{
 		manager:         m,
 		account:         acct,
 		networkID:       randomUint64(),
@@ -246,7 +246,7 @@ func (m *Manager) sessionFor(acct *account.Account) *Session {
 	return sess
 }
 
-func (m *Manager) runSession(ctx context.Context, acct *account.Account, sess *Session) {
+func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, sess *SignalingSession) {
 	if acct == nil || sess == nil {
 		return
 	}
@@ -287,7 +287,7 @@ func (m *Manager) runSession(ctx context.Context, acct *account.Account, sess *S
 		done := make(chan struct{})
 		sess.setSignaling(conn, done)
 		sess.readyOnce.Do(func() { close(sess.ready) })
-		m.log.Infof("nethernet signaling ready for %s (network %d)", acct.Gamertag(), sess.networkID)
+		m.log.Debugf("nethernet signaling ready for %s (network %d)", acct.Gamertag(), sess.networkID)
 
 		stop := conn.Notify(&notifier{done: done, log: m.log, tag: acct.Gamertag(), sess: sess})
 
@@ -310,7 +310,7 @@ func (m *Manager) runSession(ctx context.Context, acct *account.Account, sess *S
 	}
 }
 
-func (m *Manager) tokenSource(refresh string) oauth2.TokenSource {
+func (m *SignalingHub) tokenSource(refresh string) oauth2.TokenSource {
 	seed := &oauth2.Token{RefreshToken: refresh, Expiry: time.Now().Add(-time.Hour)}
 	base := auth.RefreshTokenSource(seed)
 	return oauth2.ReuseTokenSource(seed, base)
@@ -319,7 +319,7 @@ func (m *Manager) tokenSource(refresh string) oauth2.TokenSource {
 // TokenSource returns an oauth2.TokenSource for the provided account using the
 // account's refresh token. If the account is nil or does not have a refresh
 // token available, nil is returned.
-func (m *Manager) TokenSource(acct *account.Account) oauth2.TokenSource {
+func (m *SignalingHub) TokenSource(acct *account.Account) oauth2.TokenSource {
 	if acct == nil {
 		return nil
 	}
@@ -338,7 +338,7 @@ func randomUint64() uint64 {
 	return rand.Uint64()
 }
 
-func (s *Session) setSignaling(sig nethernet.Signaling, done <-chan struct{}) {
+func (s *SignalingSession) setSignaling(sig nethernet.Signaling, done <-chan struct{}) {
 	if s == nil {
 		return
 	}
@@ -354,20 +354,20 @@ func (s *Session) setSignaling(sig nethernet.Signaling, done <-chan struct{}) {
 	}
 }
 
-func (s *Session) signalingState() (nethernet.Signaling, <-chan struct{}) {
+func (s *SignalingSession) signalingState() (nethernet.Signaling, <-chan struct{}) {
 	s.sigMu.RLock()
 	defer s.sigMu.RUnlock()
 	return s.signaling, s.signalingDone
 }
 
-func (s *Session) network() string {
+func (s *SignalingSession) network() string {
 	if s == nil {
 		return ""
 	}
 	return s.networkName
 }
 
-func (s *Session) flagTransfer() {
+func (s *SignalingSession) flagTransfer() {
 	if s == nil {
 		return
 	}
@@ -379,7 +379,7 @@ func (s *Session) flagTransfer() {
 	}
 }
 
-func (s *Session) consumeTransfer() bool {
+func (s *SignalingSession) consumeTransfer() bool {
 	if s == nil {
 		return false
 	}
@@ -392,7 +392,7 @@ func (s *Session) consumeTransfer() bool {
 	return true
 }
 
-func (m *Manager) enqueuePending(sess *Session) {
+func (m *SignalingHub) enqueuePending(sess *SignalingSession) {
 	if m == nil || sess == nil || m.pending == nil {
 		return
 	}
@@ -413,20 +413,20 @@ func (m *Manager) enqueuePending(sess *Session) {
 	}
 }
 
-func (m *Manager) sessionsSnapshot() []*Session {
+func (m *SignalingHub) sessionsSnapshot() []*SignalingSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.sessions) == 0 {
 		return nil
 	}
-	sessions := make([]*Session, 0, len(m.sessions))
+	sessions := make([]*SignalingSession, 0, len(m.sessions))
 	for _, sess := range m.sessions {
 		sessions = append(sessions, sess)
 	}
 	return sessions
 }
 
-func (m *Manager) ClaimPending(ctx context.Context) *account.Account {
+func (m *SignalingHub) ClaimPending(ctx context.Context) *account.Account {
 	if m == nil {
 		return nil
 	}

@@ -21,8 +21,8 @@ type Service struct {
 	log      *logger.Logger
 	accounts *account.Manager
 	friends  *friends.Manager
-	sessions *session.Manager
-	nether   *nether.Manager
+	sessions *session.Orchestrator
+	nether   *nether.SignalingHub
 
 	started bool
 	mu      sync.RWMutex
@@ -31,7 +31,10 @@ type Service struct {
 func New(opts Options) (*Service, error) {
 	opts.ApplyDefaults()
 
-	loggr := logger.New()
+	loggr := opts.Logger
+	if loggr == nil {
+		loggr = logger.New()
+	}
 	acctMgr := account.NewManager()
 	for _, acct := range opts.Accounts {
 		if _, err := acctMgr.Register(context.Background(), account.Options{
@@ -53,9 +56,9 @@ func New(opts Options) (*Service, error) {
 		SyncEvery:  opts.Friends.SyncTicker,
 	})
 
-	netherMgr := nether.NewManager(loggr, acctMgr)
+	netherHub := nether.NewHub(loggr, acctMgr)
 
-	sessionMgr := session.NewManager(loggr, acctMgr, netherMgr, httpClient)
+	sessionMgr := session.NewOrchestrator(loggr, acctMgr, netherHub, httpClient)
 	sessionMgr.ConfigureRelay(session.RelayOptions{
 		RemoteAddress: opts.Relay.RemoteAddress,
 		VerifyTarget:  opts.Relay.VerifyTarget,
@@ -68,7 +71,7 @@ func New(opts Options) (*Service, error) {
 		accounts: acctMgr,
 		friends:  friendMgr,
 		sessions: sessionMgr,
-		nether:   netherMgr,
+		nether:   netherHub,
 	}
 
 	return srv, nil

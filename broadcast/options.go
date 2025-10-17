@@ -1,12 +1,17 @@
 package broadcast
 
-import "time"
+import (
+	"time"
+
+	"github.com/cjmustard/consoleconnect/broadcast/logger"
+)
 
 type Options struct {
 	Accounts []AccountOptions
 	Friends  FriendOptions
 	Listener ListenerOptions
 	Relay    RelayOptions
+	Logger   *logger.Logger
 }
 
 type AccountOptions struct {
