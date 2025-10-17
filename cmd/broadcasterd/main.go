@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/cjmustard/console-connect/broadcaster"
+	"github.com/cjmustard/console-connect/minecraft"
 )
 
 func main() {
@@ -15,9 +15,9 @@ func main() {
 	listenAddr := flag.String("listen", "", "override listener address for bedrock clients")
 	flag.Parse()
 
-	opts := broadcaster.Options{}
+	opts := minecraft.Options{}
 	if optionsPath != nil && *optionsPath != "" {
-		loaded, err := broadcaster.LoadOptions(*optionsPath)
+		loaded, err := minecraft.LoadOptions(*optionsPath)
 		if err != nil {
 			log.Fatalf("load options: %v", err)
 		}
@@ -31,7 +31,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	svc, err := broadcaster.New(opts)
+	svc, err := minecraft.New(opts)
 	if err != nil {
 		log.Fatalf("initialise broadcaster: %v", err)
 	}

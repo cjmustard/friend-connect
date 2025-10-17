@@ -14,21 +14,21 @@ Java service features such as:
 
 ## Getting started
 
-The project now centres around the exported `broadcaster` package. Create an
+The project now centres around the exported `minecraft` package. Create an
 `Options` struct, pass in the accounts and features you need, then start the
 service:
 
 ```go
-opts := broadcaster.Options{
-    Accounts: []broadcaster.AccountOptions{
+opts := minecraft.Options{
+    Accounts: []minecraft.AccountOptions{
         {Gamertag: "CJMustard1452", RefreshToken: "..."},
     },
-    Storage: broadcaster.StorageOptions{Directory: "data"},
-    Friends: broadcaster.FriendOptions{AutoAccept: true, AutoAdd: true},
+    Storage: minecraft.StorageOptions{Directory: "data"},
+    Friends: minecraft.FriendOptions{AutoAccept: true, AutoAdd: true},
 }
 opts.ApplyDefaults()
 
-svc, err := broadcaster.New(opts)
+svc, err := minecraft.New(opts)
 if err != nil {
     log.Fatalf("initialise broadcaster: %v", err)
 }
@@ -37,7 +37,7 @@ if err := svc.Run(context.Background()); err != nil {
 }
 ```
 
-A helper `broadcaster.LoadOptions` is available when you want to hydrate the
+A helper `minecraft.LoadOptions` is available when you want to hydrate the
 same structure from JSON. The schema mirrors `config.example.json`.
 
 ## CLI daemon
