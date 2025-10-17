@@ -1,9 +1,9 @@
-package consoleconnect
+package broadcast
 
 import (
 	"time"
 
-	"github.com/cjmustard/console-connect/notifications"
+	"github.com/cjmustard/consoleconnect/broadcast/notifications"
 )
 
 type Options struct {

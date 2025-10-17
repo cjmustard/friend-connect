@@ -1,4 +1,4 @@
-module github.com/cjmustard/console-connect
+module github.com/cjmustard/consoleconnect
 
 go 1.24
 

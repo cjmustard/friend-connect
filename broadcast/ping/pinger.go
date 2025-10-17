@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/cjmustard/console-connect/logger"
+	"github.com/cjmustard/consoleconnect/broadcast/logger"
 )
 
 type Pinger struct {

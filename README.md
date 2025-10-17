@@ -12,49 +12,33 @@ Java service features such as:
 - Gallery support for custom user images.
 - Persistent storage of friend data using JSON files.
 
-## Getting started
+## Layout
 
-The project now centres around the root `consoleconnect` package. Create an
-`Options` struct, populate it with the accounts and features you need, then
-start the service:
+All broadcaster source lives under the `github.com/cjmustard/consoleconnect/broadcast`
+module path. Subpackages mirror the major areas of the original Java project:
 
-```go
-opts := consoleconnect.Options{
-    Accounts: []consoleconnect.AccountOptions{
-        {Gamertag: "CJMustard1452", RefreshToken: "..."},
-    },
-    Storage: consoleconnect.StorageOptions{Directory: "data"},
-    Friends: consoleconnect.FriendOptions{AutoAccept: true, AutoAdd: true},
-}
-opts.ApplyDefaults()
+- `account`, `session`, and `subsession` handle Xbox Live presence and session
+  bookkeeping.
+- `friends` manages friend synchronisation and notifications.
+- `gallery`, `storage`, `ping`, and `web` provide optional auxiliary features.
+- `notifications` contains the webhook delivery helpers shared by other packages.
 
-svc, err := consoleconnect.New(opts)
-if err != nil {
-    log.Fatalf("initialise broadcaster: %v", err)
-}
-if err := svc.Run(context.Background()); err != nil {
-    log.Fatalf("broadcaster stopped: %v", err)
-}
-```
+The repository root exposes a single `main.go` file so the broadcaster can run as
+a standalone executable without any external configuration files.
 
-## CLI daemon
+## Running the broadcaster
 
-An example daemon is available in `cmd/broadcasterd`. It exposes a `-listen`
-flag to override the Bedrock listener address and otherwise uses the default
-options provided by the package. The daemon is only a thin wrapper around the
-exported module, making it easy to embed the broadcaster in other applications.
+Edit `main.go` and populate the `broadcast.Options` struct with the gamertags and
+refresh tokens you want to broadcast. The sample configuration calls into the
+Microsoft device login flow via gophertunnel's auth helpers to cache a refresh
+token locally (`assets/token.tok`).
 
-Run it with:
+Once the values are set, start the service with:
 
 ```bash
-GO111MODULE=on go run ./cmd/broadcasterd
+GO111MODULE=on go run ./...
 ```
 
-## Tests
-
-A lightweight smoke test ensures that the service boots with a minimal set of
-options:
-
-```bash
-go test ./...
-```
+The program launches the Bedrock listener, synchronises friends on the interval
+specified in the options, and serves the web dashboard on the configured HTTP
+address.

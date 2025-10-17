@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cjmustard/console-connect/logger"
+	"github.com/cjmustard/consoleconnect/broadcast/logger"
 )
 
 type Config struct {
