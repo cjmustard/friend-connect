@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cjmustard/consoleconnect/broadcast"
-	"github.com/cjmustard/consoleconnect/broadcast/notifications"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
@@ -19,43 +18,19 @@ func main() {
 	refresh := ensureRefreshToken()
 
 	opts := broadcast.Options{
-		XboxClientID:     "", // Optional: Provide if your application integrates with Xbox Live APIs.
-		XboxClientSecret: "",
 		Accounts: []broadcast.AccountOptions{
 			{
-				Gamertag:     "CJMustard1452", // Replace with the gamertag to broadcast.
+				Gamertag:     "CJMustard1452",
 				RefreshToken: refresh,
 				ShowAsOnline: true,
 				PreferredIPs: []string{"0.0.0.0"},
 			},
 		},
-		Storage: broadcast.StorageOptions{Directory: "data"},
 		Friends: broadcast.FriendOptions{
 			AutoAccept: true,
 			AutoAdd:    true,
 			SyncTicker: time.Minute,
 		},
-		HTTP: broadcast.HTTPOptions{
-			Addr:         ":8080",
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 5 * time.Second,
-		},
-		Ping: broadcast.PingOptions{
-			Enabled: false,
-			Target:  "127.0.0.1:19132",
-			Period:  30 * time.Second,
-		},
-		Gallery: broadcast.GalleryOptions{
-			Enabled: true,
-			Path:    "gallery",
-		},
-		Notifications: notifications.Config{
-			Enabled:                  false,
-			WebhookURL:               "",
-			SessionExpiredMessage:    "Authenticate at %s using the code %s",
-			FriendRestrictionMessage: "Friend restriction detected for %s (%s)",
-		},
-		CustomImages: map[string]string{},
 		Listener: broadcast.ListenerOptions{
 			Address: "0.0.0.0:19132",
 			Name:    "Console Connect",

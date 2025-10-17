@@ -18,7 +18,6 @@ var (
 	FollowersURL         = "https://peoplehub.xboxlive.com/users/me/people/followers"
 	SocialURL            = "https://peoplehub.xboxlive.com/users/me/people/social"
 	SocialSummaryURL     = "https://social.xboxlive.com/users/me/summary"
-	GalleryURL           = "https://persona.franchise.minecraft-services.net/api/v1.0/gallery"
 	WebsocketDialTimeout = 10 * time.Second
 	ConnectionTypeWebRTC = 3
 	MaxFriends           = 2000

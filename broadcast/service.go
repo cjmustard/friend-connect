@@ -11,30 +11,21 @@ import (
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
 	"github.com/cjmustard/consoleconnect/broadcast/friends"
-	"github.com/cjmustard/consoleconnect/broadcast/gallery"
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
 	"github.com/cjmustard/consoleconnect/broadcast/nether"
-	"github.com/cjmustard/consoleconnect/broadcast/notifications"
-	"github.com/cjmustard/consoleconnect/broadcast/ping"
 	"github.com/cjmustard/consoleconnect/broadcast/session"
-	"github.com/cjmustard/consoleconnect/broadcast/storage"
-	"github.com/cjmustard/consoleconnect/broadcast/web"
 )
 
 type Service struct {
-	opts          Options
-	log           *logger.Logger
-	accounts      *account.Manager
-	friends       *friends.Manager
-	gallery       *gallery.Manager
-	storage       *storage.Manager
-	sessions      *session.Manager
-	nether        *nether.Manager
-	notifications notifications.Manager
-	pinger        *ping.Pinger
-	webServer     *web.Server
-	started       bool
-	mu            sync.RWMutex
+	opts     Options
+	log      *logger.Logger
+	accounts *account.Manager
+	friends  *friends.Manager
+	sessions *session.Manager
+	nether   *nether.Manager
+
+	started bool
+	mu      sync.RWMutex
 }
 
 func New(opts Options) (*Service, error) {
@@ -53,26 +44,15 @@ func New(opts Options) (*Service, error) {
 		}
 	}
 
-	store, err := storage.NewManager(opts.Storage.Directory, opts.Gallery.Path)
-	if err != nil {
-		return nil, fmt.Errorf("storage: %w", err)
-	}
-
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	provider := friends.NewXboxProvider(httpClient)
-	notify := notifications.NewManager(loggr, opts.Notifications)
-	friendMgr := friends.NewManager(loggr, acctMgr, provider, notify)
+	friendMgr := friends.NewManager(loggr, acctMgr, provider)
 	friendMgr.Configure(friends.Options{
 		AutoAccept: opts.Friends.AutoAccept,
 		AutoAdd:    opts.Friends.AutoAdd,
 		SyncEvery:  opts.Friends.SyncTicker,
 	})
-
-	galleryMgr, err := gallery.New(opts.Gallery.Path)
-	if err != nil {
-		return nil, fmt.Errorf("gallery: %w", err)
-	}
 
 	netherMgr := nether.NewManager(loggr, acctMgr)
 
@@ -83,25 +63,14 @@ func New(opts Options) (*Service, error) {
 		Timeout:       opts.Relay.Timeout,
 	})
 
-	var pinger *ping.Pinger
-	if opts.Ping.Enabled {
-		pinger = ping.New(loggr, opts.Ping.Target, opts.Ping.Period)
-	}
-
 	srv := &Service{
-		opts:          opts,
-		log:           loggr,
-		accounts:      acctMgr,
-		friends:       friendMgr,
-		gallery:       galleryMgr,
-		storage:       store,
-		sessions:      sessionMgr,
-		notifications: notify,
-		pinger:        pinger,
-		nether:        netherMgr,
+		opts:     opts,
+		log:      loggr,
+		accounts: acctMgr,
+		friends:  friendMgr,
+		sessions: sessionMgr,
+		nether:   netherMgr,
 	}
-
-	srv.webServer = web.NewServer(loggr, acctMgr, sessionMgr, friendMgr, galleryMgr, srv.snapshotOptions)
 
 	return srv, nil
 }
@@ -136,30 +105,9 @@ func (s *Service) Run(ctx context.Context) error {
 	s.nether.Start(ctx)
 	s.sessions.Start(ctx)
 
-	go func() {
-		if s.pinger != nil {
-			s.pinger.Run(ctx)
-		}
-	}()
-
 	go s.friends.Run(ctx)
 
-	go func() {
-		if err := s.sessions.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider}); err != nil {
-			s.log.Errorf("session listener stopped: %v", err)
-			cancel()
-		}
-	}()
-
-	return s.webServer.ListenAndServe(ctx, web.HTTPOptions{
-		Addr:         s.opts.HTTP.Addr,
-		ReadTimeout:  s.opts.HTTP.ReadTimeout,
-		WriteTimeout: s.opts.HTTP.WriteTimeout,
-	})
+	return s.sessions.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
 }
 
 var _ OptionsProvider = (*Service)(nil)
-
-func (s *Service) snapshotOptions() any {
-	return s.Options()
-}

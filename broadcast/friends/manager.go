@@ -8,7 +8,6 @@ import (
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
-	"github.com/cjmustard/consoleconnect/broadcast/notifications"
 )
 
 type Friend struct {
@@ -46,18 +45,14 @@ type Manager struct {
 	provider Provider
 	friends  map[string][]Friend
 	mu       sync.RWMutex
-	notify   notifications.Manager
 	opts     Options
 }
 
-func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider, notify notifications.Manager) *Manager {
-	if notify == nil {
-		notify = notifications.NewManager(log, notifications.Config{})
-	}
+func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider) *Manager {
 	if provider == nil {
 		provider = NewXboxProvider(nil)
 	}
-	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}, notify: notify}
+	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}}
 }
 
 func (m *Manager) Configure(opts Options) {
@@ -99,7 +94,6 @@ func (m *Manager) syncAndProcess(ctx context.Context) {
 	if m.opts.AutoAccept {
 		m.acceptPending(ctx)
 	}
-
 }
 
 func (m *Manager) Sync(ctx context.Context) error {

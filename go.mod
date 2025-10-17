@@ -8,7 +8,7 @@ require (
 	github.com/df-mc/go-nethernet v0.0.0-20250326113854-da40ae9a1339
 	github.com/df-mc/go-xsapi v0.0.0-20240902102602-e7c4bffb955f
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/mux v1.8.1
+	github.com/sandertv/go-raknet v1.14.3-0.20250823121252-325aeea25d25
 	github.com/sandertv/gophertunnel v1.50.1
 	golang.org/x/oauth2 v0.32.0
 )
@@ -37,7 +37,6 @@ require (
 	github.com/pion/transport/v3 v3.0.8 // indirect
 	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/pion/webrtc/v4 v4.1.5 // indirect
-	github.com/sandertv/go-raknet v1.14.3-0.20250823121252-325aeea25d25 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/net v0.46.0 // indirect

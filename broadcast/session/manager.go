@@ -533,11 +533,11 @@ func (m *Manager) transferClient(ctx context.Context, conn *minecraft.Conn) erro
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("flush transfer packet: %w", err)
 	}
-	// Allow the transfer packet to reach the client before the listener closes the
-	// underlying RakNet connection.
+	// Allow ample time for clients to process the transfer and tear down their
+	// RakNet connection themselves before the listener forces the close.
 	select {
 	case <-ctx.Done():
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 	}
 	return nil
 }
@@ -634,24 +634,6 @@ func defaultWorldName(gamertag string) string {
 		return "Minecraft World"
 	}
 	return fmt.Sprintf("%s Realm", gamertag)
-}
-
-func (m *Manager) Invite(ctx context.Context, acct *account.Account, xuid string) error {
-	if xuid == "" {
-		return errors.New("missing xuid")
-	}
-	sess := m.sessionFor(acct)
-	if sess == nil {
-		return fmt.Errorf("session not ready for %s", acct.Gamertag())
-	}
-	titleID, err := strconv.ParseInt(constants.TitleID, 10, 32)
-	if err != nil {
-		return fmt.Errorf("parse title id: %w", err)
-	}
-	if _, err := sess.Invite(xuid, int32(titleID)); err != nil {
-		return fmt.Errorf("send invite: %w", err)
-	}
-	return nil
 }
 
 type xboxTokenSource struct {
