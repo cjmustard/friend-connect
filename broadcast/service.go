@@ -3,6 +3,7 @@ package broadcast
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -40,7 +41,12 @@ func New(opts Options) (*Service, error) {
 	loggr := logger.New()
 	acctMgr := account.NewManager()
 	for _, acct := range opts.Accounts {
-		if _, err := acctMgr.Register(context.Background(), acct.Gamertag, acct.RefreshToken); err != nil {
+		if _, err := acctMgr.Register(context.Background(), account.Options{
+			Gamertag:     acct.Gamertag,
+			RefreshToken: acct.RefreshToken,
+			ShowAsOnline: acct.ShowAsOnline,
+			PreferredIPs: acct.PreferredIPs,
+		}); err != nil {
 			return nil, fmt.Errorf("register account %s: %w", acct.Gamertag, err)
 		}
 	}
@@ -50,7 +56,9 @@ func New(opts Options) (*Service, error) {
 		return nil, fmt.Errorf("storage: %w", err)
 	}
 
-	provider := friends.NewStoredProvider(store.Backend())
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	provider := friends.NewXboxProvider(httpClient)
 	notify := notifications.NewManager(loggr, opts.Notifications)
 	friendMgr := friends.NewManager(loggr, acctMgr, provider, notify)
 
@@ -59,7 +67,7 @@ func New(opts Options) (*Service, error) {
 		return nil, fmt.Errorf("gallery: %w", err)
 	}
 
-	sessionMgr := session.NewManager(loggr, acctMgr)
+	sessionMgr := session.NewManager(loggr, acctMgr, httpClient)
 
 	var pinger *ping.Pinger
 	if opts.Ping.Enabled {
@@ -102,6 +110,8 @@ func (s *Service) Run(ctx context.Context) error {
 	defer cancel()
 
 	listenerProvider := minecraft.NewStatusProvider(s.opts.Listener.Name, s.opts.Listener.Message)
+
+	s.sessions.Start(ctx)
 
 	go func() {
 		if s.pinger != nil {

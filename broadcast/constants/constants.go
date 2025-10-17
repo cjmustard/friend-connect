@@ -10,6 +10,10 @@ const (
 	JoinSessionURL   = "https://sessiondirectory.xboxlive.com/handles/%s/session"
 	PlayfabLoginURL  = "https://20ca2.playfabapi.com/Client/LoginWithXbox"
 	RTCWebsocketURL  = "wss://signal.franchise.minecraft-services.net/ws/v1.0/signaling/%s"
+
+	RelyingPartyXboxLive    = "http://xboxlive.com"
+	RelyingPartyMultiplayer = "https://multiplayer.minecraft.net/"
+	RelyingPartyPlayFab     = "https://b980a380.minecraft.playfabapi.com/"
 )
 
 var (

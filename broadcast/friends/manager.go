@@ -36,6 +36,9 @@ func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider
 	if notify == nil {
 		notify = notifications.NewManager(log, notifications.Config{})
 	}
+	if provider == nil {
+		provider = NewXboxProvider(nil)
+	}
 	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}, notify: notify}
 }
 
@@ -50,13 +53,13 @@ func (m *Manager) Sync(ctx context.Context) error {
 			defer wg.Done()
 			friends, err := m.provider.ListFriends(ctx, ac)
 			if err != nil {
-				m.log.Errorf("list friends for %s: %v", ac.Gamertag, err)
+				m.log.Errorf("list friends for %s: %v", ac.Gamertag(), err)
 				once.Do(func() { firstErr = err })
 				return
 			}
 
 			m.mu.Lock()
-			m.friends[ac.Gamertag] = friends
+			m.friends[ac.Gamertag()] = friends
 			m.mu.Unlock()
 		}(acct)
 	})
@@ -71,7 +74,7 @@ func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
 	}
 	m.accounts.WithAccounts(func(acct *account.Account) {
 		if err := m.provider.AddFriend(ctx, acct, gamertag); err != nil {
-			m.log.Errorf("auto add %s to %s: %v", gamertag, acct.Gamertag, err)
+			m.log.Errorf("auto add %s to %s: %v", gamertag, acct.Gamertag(), err)
 		}
 	})
 	return nil

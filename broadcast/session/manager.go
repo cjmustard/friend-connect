@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +16,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
+	"github.com/cjmustard/consoleconnect/broadcast/constants"
 	"github.com/cjmustard/consoleconnect/broadcast/logger"
 )
 
@@ -23,6 +28,7 @@ type Manager struct {
 	connMu      sync.RWMutex
 	subsessions map[string]*SubSession
 	subsMu      sync.RWMutex
+	httpClient  *http.Client
 }
 
 type Options struct {
@@ -38,13 +44,102 @@ type SubSession struct {
 	mu       sync.RWMutex
 }
 
-func NewManager(log *logger.Logger, accounts *account.Manager) *Manager {
+func NewManager(log *logger.Logger, accounts *account.Manager, httpClient *http.Client) *Manager {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
 	return &Manager{
 		log:         log,
 		accounts:    accounts,
 		conns:       map[string]*minecraft.Conn{},
 		subsessions: map[string]*SubSession{},
+		httpClient:  httpClient,
 	}
+}
+
+func (m *Manager) Start(ctx context.Context) {
+	m.accounts.WithAccounts(func(acct *account.Account) {
+		if !acct.ShowAsOnline() {
+			return
+		}
+		go m.runPresence(ctx, acct)
+	})
+}
+
+func (m *Manager) runPresence(ctx context.Context, acct *account.Account) {
+	backoff := 10 * time.Second
+	maxBackoff := 5 * time.Minute
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		delay, err := m.updatePresence(ctx, acct)
+		if err != nil {
+			m.log.Errorf("presence update for %s: %v", acct.Gamertag(), err)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+
+		backoff = 10 * time.Second
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *Manager) updatePresence(ctx context.Context, acct *account.Account) (time.Duration, error) {
+	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	if err != nil {
+		return time.Minute, fmt.Errorf("token: %w", err)
+	}
+	if tok.XUID == "" {
+		return time.Minute, fmt.Errorf("missing xuid for %s", acct.Gamertag())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, constants.UserPresenceURL(tok.XUID), strings.NewReader(`{"state":"active"}`))
+	if err != nil {
+		return time.Minute, err
+	}
+	req.Header.Set("Authorization", tok.Header)
+	req.Header.Set("x-xbl-contract-version", "3")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return time.Minute, fmt.Errorf("presence request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return time.Minute, fmt.Errorf("presence status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	heartbeat := 300
+	if header := resp.Header.Get("X-Heartbeat-After"); header != "" {
+		if v, err := strconv.Atoi(header); err == nil && v > 0 {
+			heartbeat = v
+		}
+	}
+
+	acct.UpdateStatus(account.StatusOnline, map[string]any{
+		"heartbeatAfter":  heartbeat,
+		"presenceUpdated": time.Now(),
+	})
+
+	return time.Duration(heartbeat) * time.Second, nil
 }
 
 func (m *Manager) Listen(ctx context.Context, opts Options) error {
