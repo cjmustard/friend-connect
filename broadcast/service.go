@@ -79,6 +79,7 @@ func New(opts Options) (*Service, error) {
 	netherMgr := nether.NewManager(loggr, acctMgr)
 
 	sessionMgr := session.NewManager(loggr, acctMgr, netherMgr, httpClient)
+	friendMgr.SetInviter(sessionMgr)
 
 	var pinger *ping.Pinger
 	if opts.Ping.Enabled {

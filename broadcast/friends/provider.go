@@ -13,7 +13,6 @@ import (
 
 	"github.com/cjmustard/consoleconnect/broadcast/account"
 	"github.com/cjmustard/consoleconnect/broadcast/constants"
-	"github.com/cjmustard/consoleconnect/broadcast/session"
 	"github.com/cjmustard/consoleconnect/broadcast/xbox"
 )
 
@@ -289,42 +288,6 @@ func (p *XboxProvider) AcceptRequests(ctx context.Context, acct *account.Account
 		requests = append(requests, Request{XUID: person.XUID})
 	}
 	return requests, nil
-}
-
-func (p *XboxProvider) SendInvite(ctx context.Context, acct *account.Account, sessionID, xuid string) error {
-	if sessionID == "" {
-		return fmt.Errorf("missing session id")
-	}
-	if xuid == "" {
-		return fmt.Errorf("missing xuid")
-	}
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
-	if err != nil {
-		return fmt.Errorf("fetch token: %w", err)
-	}
-
-	payload, err := json.Marshal(session.NewInviteHandle(sessionID, xuid, constants.TitleID))
-	if err != nil {
-		return fmt.Errorf("marshal invite payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, constants.CreateHandleURL, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	applyCommonHeaders(req, token)
-	req.Header.Set("x-xbl-contract-version", "107")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("send invite request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("send invite status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	return nil
 }
 
 func applyCommonHeaders(req *http.Request, token *xbox.Token) {

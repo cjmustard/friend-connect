@@ -3,13 +3,10 @@ package constants
 import "time"
 
 const (
-	ServiceConfigID  = "4fc10100-5f7a-4470-899b-280835760c07"
-	TemplateName     = "MinecraftLobby"
-	TitleID          = "896928775"
-	CreateSessionURL = "https://sessiondirectory.xboxlive.com/serviceconfigs/" + ServiceConfigID + "/sessionTemplates/" + TemplateName + "/sessions/%s"
-	JoinSessionURL   = "https://sessiondirectory.xboxlive.com/handles/%s/session"
-	PlayfabLoginURL  = "https://20ca2.playfabapi.com/Client/LoginWithXbox"
-	RTCWebsocketURL  = "wss://signal.franchise.minecraft-services.net/ws/v1.0/signaling/%s"
+	ServiceConfigID = "4fc10100-5f7a-4470-899b-280835760c07"
+	TemplateName    = "MinecraftLobby"
+	TitleID         = "896928775"
+	PlayfabLoginURL = "https://20ca2.playfabapi.com/Client/LoginWithXbox"
 
 	RelyingPartyXboxLive    = "http://xboxlive.com"
 	RelyingPartyMultiplayer = "https://multiplayer.minecraft.net/"
@@ -17,9 +14,7 @@ const (
 )
 
 var (
-	StartSessionURL      = "https://authorization.franchise.minecraft-services.net/api/v1.0/session/start"
 	RtaWebsocketURL      = "wss://rta.xboxlive.com/connect"
-	CreateHandleURL      = "https://sessiondirectory.xboxlive.com/handles"
 	FollowersURL         = "https://peoplehub.xboxlive.com/users/me/people/followers"
 	SocialURL            = "https://peoplehub.xboxlive.com/users/me/people/social"
 	SocialSummaryURL     = "https://social.xboxlive.com/users/me/summary"

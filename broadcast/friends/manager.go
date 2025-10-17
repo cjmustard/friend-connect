@@ -27,7 +27,10 @@ type Provider interface {
 	RemoveFriend(ctx context.Context, acct *account.Account, gamertag string) error
 	PendingRequests(ctx context.Context, acct *account.Account) ([]Request, error)
 	AcceptRequests(ctx context.Context, acct *account.Account, xuids []string) ([]Request, error)
-	SendInvite(ctx context.Context, acct *account.Account, sessionID, xuid string) error
+}
+
+type Inviter interface {
+	Invite(ctx context.Context, acct *account.Account, xuid string) error
 }
 
 type Options struct {
@@ -53,6 +56,7 @@ type Manager struct {
 	opts       Options
 	inviteMu   sync.Mutex
 	lastInvite map[string]time.Time
+	inviter    Inviter
 }
 
 func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider, notify notifications.Manager) *Manager {
@@ -63,6 +67,10 @@ func NewManager(log *logger.Logger, accounts *account.Manager, provider Provider
 		provider = NewXboxProvider(nil)
 	}
 	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}, notify: notify, lastInvite: map[string]time.Time{}}
+}
+
+func (m *Manager) SetInviter(inv Inviter) {
+	m.inviter = inv
 }
 
 func (m *Manager) Configure(opts Options) {
@@ -187,11 +195,7 @@ func (m *Manager) acceptPending(ctx context.Context) {
 			}
 			m.log.Infof("accepted friend request from %s", name)
 			if m.opts.InviteEnabled {
-				if err := m.provider.SendInvite(ctx, acct, acct.SessionID(), r.XUID); err != nil {
-					m.log.Errorf("send invite to %s for %s: %v", name, acct.Gamertag(), err)
-				} else {
-					m.markInvited(acct.Gamertag(), r.XUID)
-				}
+				m.inviteFriend(ctx, acct, r.XUID, name)
 			}
 		}
 	})
@@ -211,14 +215,21 @@ func (m *Manager) inviteFriends(ctx context.Context) {
 			if !m.shouldInvite(acct.Gamertag(), fr.XUID) {
 				continue
 			}
-			if err := m.provider.SendInvite(ctx, acct, sessionID, fr.XUID); err != nil {
-				m.log.Errorf("send invite to %s for %s: %v", fr.Gamertag, acct.Gamertag(), err)
-				continue
-			}
-			m.log.Debugf("sent invite to %s (%s) for %s", fr.Gamertag, fr.XUID, acct.Gamertag())
-			m.markInvited(acct.Gamertag(), fr.XUID)
+			m.inviteFriend(ctx, acct, fr.XUID, fr.Gamertag)
 		}
 	})
+}
+
+func (m *Manager) inviteFriend(ctx context.Context, acct *account.Account, xuid, label string) {
+	if m.inviter == nil {
+		return
+	}
+	if err := m.inviter.Invite(ctx, acct, xuid); err != nil {
+		m.log.Errorf("send invite to %s for %s: %v", label, acct.Gamertag(), err)
+		return
+	}
+	m.log.Debugf("sent invite to %s (%s) for %s", label, xuid, acct.Gamertag())
+	m.markInvited(acct.Gamertag(), xuid)
 }
 
 func (m *Manager) shouldInvite(tag, xuid string) bool {

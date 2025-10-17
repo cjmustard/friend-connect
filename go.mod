@@ -6,6 +6,7 @@ toolchain go1.24.3
 
 require (
 	github.com/df-mc/go-nethernet v0.0.0-20250326113854-da40ae9a1339
+	github.com/df-mc/go-xsapi v0.0.0-20240902102602-e7c4bffb955f
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/sandertv/gophertunnel v1.50.1
@@ -15,7 +16,6 @@ require (
 require (
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/df-mc/go-playfab v0.0.0-20240902102459-2f8b5cd02173 // indirect
-	github.com/df-mc/go-xsapi v0.0.0-20240902102602-e7c4bffb955f // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
 	github.com/go-gl/mathgl v1.2.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
