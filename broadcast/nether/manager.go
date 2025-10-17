@@ -25,15 +25,21 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
+
+	pending chan *Session
 }
 
 type Session struct {
+	manager *Manager
 	account *account.Account
 
 	networkID uint64
 
 	ready     chan struct{}
 	readyOnce sync.Once
+
+	mu               sync.Mutex
+	pendingTransfers int
 }
 
 type notifier struct {
@@ -41,6 +47,7 @@ type notifier struct {
 	once sync.Once
 	log  *logger.Logger
 	tag  string
+	sess *Session
 }
 
 func (n *notifier) NotifySignal(signal *nethernet.Signal) {
@@ -51,6 +58,9 @@ func (n *notifier) NotifySignal(signal *nethernet.Signal) {
 	switch signal.Type {
 	case nethernet.SignalTypeOffer:
 		n.log.Infof("nethernet connection request for %s (connection %d, network %d)", n.tag, signal.ConnectionID, signal.NetworkID)
+		if n.sess != nil {
+			n.sess.flagTransfer()
+		}
 	case nethernet.SignalTypeAnswer:
 		n.log.Infof("nethernet connection established for %s (connection %d)", n.tag, signal.ConnectionID)
 	case nethernet.SignalTypeError:
@@ -79,6 +89,7 @@ func NewManager(log *logger.Logger, accounts *account.Manager) *Manager {
 		log:      log,
 		accounts: accounts,
 		sessions: map[string]*Session{},
+		pending:  make(chan *Session, 32),
 	}
 }
 
@@ -113,9 +124,11 @@ func (m *Manager) sessionFor(acct *account.Account) *Session {
 	defer m.mu.Unlock()
 	id := acct.SessionID()
 	if sess, ok := m.sessions[id]; ok {
+		sess.manager = m
 		return sess
 	}
 	sess := &Session{
+		manager:   m,
 		account:   acct,
 		networkID: randomUint64(),
 		ready:     make(chan struct{}),
@@ -166,7 +179,7 @@ func (m *Manager) runSession(ctx context.Context, acct *account.Account, sess *S
 		m.log.Infof("nethernet signaling ready for %s (network %d)", acct.Gamertag(), sess.networkID)
 
 		done := make(chan struct{})
-		stop := conn.Notify(&notifier{done: done, log: m.log, tag: acct.Gamertag()})
+		stop := conn.Notify(&notifier{done: done, log: m.log, tag: acct.Gamertag(), sess: sess})
 
 		select {
 		case <-ctx.Done():
@@ -197,4 +210,91 @@ func randomUint64() uint64 {
 		return binary.BigEndian.Uint64(b[:])
 	}
 	return rand.Uint64()
+}
+
+func (s *Session) flagTransfer() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.pendingTransfers++
+	s.mu.Unlock()
+	if s.manager != nil {
+		s.manager.enqueuePending(s)
+	}
+}
+
+func (s *Session) consumeTransfer() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingTransfers == 0 {
+		return false
+	}
+	s.pendingTransfers--
+	return true
+}
+
+func (m *Manager) enqueuePending(sess *Session) {
+	if m == nil || sess == nil || m.pending == nil {
+		return
+	}
+	select {
+	case m.pending <- sess:
+	default:
+		if m.log != nil {
+			acct := ""
+			if sess.account != nil {
+				acct = sess.account.Gamertag()
+			}
+			if acct != "" {
+				m.log.Debugf("pending transfer queue full for %s", acct)
+			} else {
+				m.log.Debug("pending transfer queue full")
+			}
+		}
+	}
+}
+
+func (m *Manager) sessionsSnapshot() []*Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.sessions) == 0 {
+		return nil
+	}
+	sessions := make([]*Session, 0, len(m.sessions))
+	for _, sess := range m.sessions {
+		sessions = append(sessions, sess)
+	}
+	return sessions
+}
+
+func (m *Manager) ClaimPending(ctx context.Context) *account.Account {
+	if m == nil {
+		return nil
+	}
+	sessions := m.sessionsSnapshot()
+	for _, sess := range sessions {
+		if sess.consumeTransfer() {
+			return sess.account
+		}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case sess := <-m.pending:
+			if sess == nil {
+				continue
+			}
+			if sess.consumeTransfer() {
+				return sess.account
+			}
+		}
+	}
 }

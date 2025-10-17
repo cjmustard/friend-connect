@@ -12,10 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/go-xsapi"
 	"github.com/df-mc/go-xsapi/mpsd"
+	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
 	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -58,6 +60,8 @@ type Manager struct {
 	relay RelayOptions
 
 	relayCheck relayCheckState
+
+	entityIDs atomic.Uint64
 }
 
 type Options struct {
@@ -442,12 +446,56 @@ func (m *Manager) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	m.connMu.Unlock()
 	defer m.Close(addr)
 
-	if err := conn.StartGame(minecraft.GameData{}); err != nil {
+	requireFlag := m.relay.RemoteAddress != "" && m.nether != nil
+
+	var host *account.Account
+	if requireFlag {
+		var err error
+		host, err = m.waitForTransferFlag(ctx)
+		if host == nil {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				return
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				m.log.Warnf("timed out waiting for transfer flag for %s", addr)
+			} else {
+				m.log.Warnf("no pending transfer available for %s", addr)
+			}
+			m.notifyNoPendingTransfer(conn)
+			return
+		}
+	}
+
+	subs := m.RegisterSubSession(addr, host, conn)
+	if subs != nil && requireFlag {
+		subs.SetMetadata("transferFlagged", true)
+	}
+
+	if err := conn.StartGame(m.gameDataFor(host)); err != nil {
 		m.log.Errorf("start game: %v", err)
 		return
 	}
 
+	clientData := conn.ClientData()
+	if subs != nil {
+		if name := clientData.ThirdPartyName; name != "" {
+			subs.SetMetadata("clientGamertag", name)
+		}
+		if clientData.XUID != "" {
+			subs.SetMetadata("clientXUID", clientData.XUID)
+		}
+	}
+
 	if m.relay.RemoteAddress != "" {
+		clientName := clientData.ThirdPartyName
+		if clientName == "" {
+			clientName = conn.IdentityData().DisplayName
+		}
+		if host != nil {
+			m.log.Infof("transferring %s to %s for %s", clientName, m.relay.RemoteAddress, host.Gamertag())
+		} else {
+			m.log.Infof("transferring %s to %s", clientName, m.relay.RemoteAddress)
+		}
 		if err := m.transferClient(ctx, conn); err != nil {
 			m.log.Errorf("relay transfer: %v", err)
 			m.notifyTransferFailure(conn, err)
@@ -456,6 +504,56 @@ func (m *Manager) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	}
 
 	<-ctx.Done()
+}
+
+func (m *Manager) waitForTransferFlag(ctx context.Context) (*account.Account, error) {
+	if m.nether == nil {
+		return nil, nil
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, transferFlagTimeout)
+	defer cancel()
+	acct := m.nether.ClaimPending(waitCtx)
+	if acct != nil {
+		return acct, nil
+	}
+	return nil, waitCtx.Err()
+}
+
+func (m *Manager) notifyNoPendingTransfer(conn *minecraft.Conn) {
+	if conn == nil {
+		return
+	}
+	_ = conn.WritePacket(&packet.Disconnect{
+		Reason:  packet.DisconnectReasonKicked,
+		Message: "Unable to join: Host not ready. Please try again shortly.",
+	})
+	_ = conn.Flush()
+}
+
+func (m *Manager) gameDataFor(acct *account.Account) minecraft.GameData {
+	runtimeID := m.entityIDs.Add(1)
+	worldName := defaultWorldName("")
+	if acct != nil {
+		worldName = defaultWorldName(acct.Gamertag())
+	}
+	const spawnY = 64
+	return minecraft.GameData{
+		WorldName:                    worldName,
+		BaseGameVersion:              protocol.CurrentVersion,
+		Difficulty:                   2,
+		EntityUniqueID:               int64(runtimeID),
+		EntityRuntimeID:              runtimeID,
+		PlayerGameMode:               0,
+		WorldGameMode:                0,
+		PlayerPosition:               mgl32.Vec3{0, float32(spawnY), 0},
+		WorldSpawn:                   protocol.BlockPos{0, int32(spawnY), 0},
+		Dimension:                    packet.DimensionOverworld,
+		GamePublishSetting:           2,
+		Time:                         0,
+		ChunkRadius:                  8,
+		PlayerPermissions:            1,
+		ServerAuthoritativeInventory: true,
+	}
 }
 
 func (m *Manager) handlePackets(header packet.Header, payload []byte, src net.Addr, dst net.Addr) {
@@ -550,7 +648,10 @@ func (m *Manager) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
 	})
 }
 
-const relayCheckInterval = 15 * time.Second
+const (
+	relayCheckInterval  = 15 * time.Second
+	transferFlagTimeout = 20 * time.Second
+)
 
 func (m *Manager) verifyRelayTarget(ctx context.Context, timeout time.Duration) error {
 	if m.relay.RemoteAddress == "" || !m.relay.VerifyTarget {
