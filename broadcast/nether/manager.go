@@ -43,7 +43,26 @@ type notifier struct {
 	tag  string
 }
 
-func (n *notifier) NotifySignal(*nethernet.Signal) {}
+func (n *notifier) NotifySignal(signal *nethernet.Signal) {
+	if n.log == nil || signal == nil {
+		return
+	}
+
+	switch signal.Type {
+	case nethernet.SignalTypeOffer:
+		n.log.Infof("nethernet connection request for %s (connection %d, network %d)", n.tag, signal.ConnectionID, signal.NetworkID)
+	case nethernet.SignalTypeAnswer:
+		n.log.Infof("nethernet connection established for %s (connection %d)", n.tag, signal.ConnectionID)
+	case nethernet.SignalTypeError:
+		if signal.Data != "" {
+			n.log.Warnf("nethernet connection error for %s (connection %d): %s", n.tag, signal.ConnectionID, signal.Data)
+		} else {
+			n.log.Warnf("nethernet connection error for %s (connection %d)", n.tag, signal.ConnectionID)
+		}
+	default:
+		n.log.Debugf("nethernet signal for %s: type=%s connection=%d", n.tag, signal.Type, signal.ConnectionID)
+	}
+}
 
 func (n *notifier) NotifyError(err error) {
 	if err != nil && !errors.Is(err, nethernet.ErrSignalingStopped) && n.log != nil {
