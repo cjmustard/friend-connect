@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	friendconnect "github.com/cjmustard/friend-connect"
+	"github.com/cjmustard/friendconnect"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
@@ -41,7 +41,7 @@ func main() {
 			Message: listenerMessage,
 		},
 		Relay: friendconnect.RelayOptions{
-			RemoteAddress: "",
+			RemoteAddress: "zeqa.net:19132",
 			VerifyTarget:  false,
 			Timeout:       relayTimeout,
 		},
