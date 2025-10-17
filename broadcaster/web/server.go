@@ -8,12 +8,11 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cjmustard/console-connect/internal/broadcaster/account"
-	"github.com/cjmustard/console-connect/internal/broadcaster/config"
-	"github.com/cjmustard/console-connect/internal/broadcaster/friends"
-	"github.com/cjmustard/console-connect/internal/broadcaster/gallery"
-	"github.com/cjmustard/console-connect/internal/broadcaster/logger"
-	"github.com/cjmustard/console-connect/internal/broadcaster/session"
+	"github.com/cjmustard/console-connect/broadcaster/account"
+	"github.com/cjmustard/console-connect/broadcaster/friends"
+	"github.com/cjmustard/console-connect/broadcaster/gallery"
+	"github.com/cjmustard/console-connect/broadcaster/logger"
+	"github.com/cjmustard/console-connect/broadcaster/session"
 )
 
 type Server struct {
@@ -22,13 +21,14 @@ type Server struct {
 	sessions *session.Manager
 	friends  *friends.Manager
 	gallery  *gallery.Manager
+	options  func() any
 }
 
-func NewServer(log *logger.Logger, accounts *account.Manager, sessions *session.Manager, friends *friends.Manager, gallery *gallery.Manager) *Server {
-	return &Server{log: log, accounts: accounts, sessions: sessions, friends: friends, gallery: gallery}
+func NewServer(log *logger.Logger, accounts *account.Manager, sessions *session.Manager, friends *friends.Manager, gallery *gallery.Manager, options func() any) *Server {
+	return &Server{log: log, accounts: accounts, sessions: sessions, friends: friends, gallery: gallery, options: options}
 }
 
-func (s *Server) ListenAndServe(ctx context.Context, cfg config.HTTPConfig) error {
+func (s *Server) ListenAndServe(ctx context.Context, cfg HTTPOptions) error {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/accounts", s.handleAccounts).Methods(http.MethodGet)
 	r.HandleFunc("/api/sessions", s.handleSessions).Methods(http.MethodGet)
@@ -69,7 +69,17 @@ func (s *Server) handleFriends(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	s.writeJSON(w, config.Get())
+	if s.options == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.writeJSON(w, s.options())
+}
+
+type HTTPOptions struct {
+	Addr         string
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, v any) {

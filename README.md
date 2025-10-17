@@ -14,26 +14,50 @@ Java service features such as:
 
 ## Getting started
 
-1. Create a configuration file (see `config.example.json`).
-2. Run the daemon:
+The project now centres around the exported `broadcaster` package. Create an
+`Options` struct, pass in the accounts and features you need, then start the
+service:
+
+```go
+opts := broadcaster.Options{
+    Accounts: []broadcaster.AccountOptions{
+        {Gamertag: "CJMustard1452", RefreshToken: "..."},
+    },
+    Storage: broadcaster.StorageOptions{Directory: "data"},
+    Friends: broadcaster.FriendOptions{AutoAccept: true, AutoAdd: true},
+}
+opts.ApplyDefaults()
+
+svc, err := broadcaster.New(opts)
+if err != nil {
+    log.Fatalf("initialise broadcaster: %v", err)
+}
+if err := svc.Run(context.Background()); err != nil {
+    log.Fatalf("broadcaster stopped: %v", err)
+}
+```
+
+A helper `broadcaster.LoadOptions` is available when you want to hydrate the
+same structure from JSON. The schema mirrors `config.example.json`.
+
+## CLI daemon
+
+An example daemon is available in `cmd/broadcasterd`. It accepts an optional
+`-config` flag pointing to a JSON file and a `-listen` flag to override the
+Bedrock listener address. The daemon is only a thin wrapper around the exported
+module, making it easy to embed the broadcaster in other applications.
+
+Run it with:
 
 ```bash
 GO111MODULE=on go run ./cmd/broadcasterd -config config.json
 ```
 
-## Configuration
+## Tests
 
-The configuration closely mirrors the Java project:
+A lightweight smoke test ensures that the service boots with a minimal set of
+options:
 
-- `accounts`: List of accounts with refresh tokens and metadata.
-- `storage.directory`: Path used to persist JSON blobs (friends, gallery metadata, ...).
-- `friends`: Settings for automatic friend management.
-- `http`: Address and timeouts for the web manager.
-- `ping`: Optional UDP ping used to keep upstream services alive.
-- `gallery`: Directory where uploaded images are stored.
-
-## Development
-
-The project is organised using internal packages under `internal/broadcaster`. Run `go test ./...`
-to execute unit tests once they are added.
-
+```bash
+go test ./...
+```

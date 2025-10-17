@@ -31,6 +31,11 @@
     "enabled": true,
     "path": "gallery"
   },
+  "listener": {
+    "address": "0.0.0.0:19132",
+    "name": "Broadcaster",
+    "message": "Minecraft Presence Relay"
+  },
   "notifications": {
     "enabled": false,
     "webhookUrl": "",

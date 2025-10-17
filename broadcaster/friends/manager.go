@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cjmustard/console-connect/internal/broadcaster/account"
-	"github.com/cjmustard/console-connect/internal/broadcaster/logger"
-	"github.com/cjmustard/console-connect/internal/broadcaster/notifications"
+	"github.com/cjmustard/console-connect/broadcaster/account"
+	"github.com/cjmustard/console-connect/broadcaster/logger"
+	"github.com/cjmustard/console-connect/broadcaster/notifications"
 )
 
 type Friend struct {

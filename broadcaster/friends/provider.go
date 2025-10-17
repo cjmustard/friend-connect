@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cjmustard/console-connect/internal/broadcaster/account"
-	"github.com/cjmustard/console-connect/internal/broadcaster/storage"
+	"github.com/cjmustard/console-connect/broadcaster/account"
+	"github.com/cjmustard/console-connect/broadcaster/storage"
 )
 
 type StoredProvider struct {

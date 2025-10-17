@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cjmustard/console-connect/internal/broadcaster/logger"
+	"github.com/cjmustard/console-connect/broadcaster/logger"
 )
 
 type Manager struct {
