@@ -32,7 +32,11 @@ a standalone executable without any external configuration files.
 Edit `main.go` and populate the `broadcast.Options` struct with the gamertags and
 refresh tokens you want to broadcast. Provide a `Relay` `RemoteAddress` if you want
 incoming players to receive a Minecraft transfer packet that forwards them to your
-own Bedrock server. The sample configuration calls into the
+own Bedrock server. When a relay address is configured the listener mirrors the
+remote server's MOTD using `minecraft.NewForeignStatusProvider` and the session
+manager pings the target over RakNet before handing players off. If the remote is
+unreachable, the joining player receives a disconnect message instead of timing
+out. The sample configuration calls into the
 Microsoft device login flow via gophertunnel's auth helpers to cache a refresh
 token locally (`assets/token.tok`).
 

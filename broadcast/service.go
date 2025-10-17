@@ -124,7 +124,14 @@ func (s *Service) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	listenerProvider := minecraft.NewStatusProvider(s.opts.Listener.Name, s.opts.Listener.Message)
+	var listenerProvider minecraft.ServerStatusProvider = minecraft.NewStatusProvider(s.opts.Listener.Name, s.opts.Listener.Message)
+	if addr := s.opts.Relay.RemoteAddress; addr != "" {
+		if foreign, err := minecraft.NewForeignStatusProvider(addr); err == nil {
+			listenerProvider = foreign
+		} else {
+			s.log.Warnf("relay status provider for %s unavailable: %v", addr, err)
+		}
+	}
 
 	s.nether.Start(ctx)
 	s.sessions.Start(ctx)

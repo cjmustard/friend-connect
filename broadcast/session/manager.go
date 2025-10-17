@@ -17,6 +17,7 @@ import (
 	"github.com/df-mc/go-xsapi"
 	"github.com/df-mc/go-xsapi/mpsd"
 	"github.com/google/uuid"
+	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -55,6 +56,8 @@ type Manager struct {
 	metaMu     sync.Mutex
 
 	relay RelayOptions
+
+	relayCheck relayCheckState
 }
 
 type Options struct {
@@ -78,6 +81,12 @@ type RelayOptions struct {
 	RemoteAddress string
 	VerifyTarget  bool
 	Timeout       time.Duration
+}
+
+type relayCheckState struct {
+	mu        sync.Mutex
+	lastCheck time.Time
+	err       error
 }
 
 func NewManager(log *logger.Logger, accounts *account.Manager, netherMgr *nether.Manager, httpClient *http.Client) *Manager {
@@ -509,15 +518,8 @@ func (m *Manager) transferClient(ctx context.Context, conn *minecraft.Conn) erro
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	if m.relay.VerifyTarget {
-		d := net.Dialer{Timeout: timeout}
-		testCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		testConn, err := d.DialContext(testCtx, "udp", m.relay.RemoteAddress)
-		if err != nil {
-			return fmt.Errorf("verify relay target %s: %w", m.relay.RemoteAddress, err)
-		}
-		testConn.Close()
+	if err := m.verifyRelayTarget(ctx, timeout); err != nil {
+		return err
 	}
 
 	port, err := strconv.Atoi(portStr)
@@ -528,6 +530,15 @@ func (m *Manager) transferClient(ctx context.Context, conn *minecraft.Conn) erro
 	if err := conn.WritePacket(&packet.Transfer{Address: host, Port: uint16(port)}); err != nil {
 		return fmt.Errorf("send transfer packet: %w", err)
 	}
+	if err := conn.Flush(); err != nil {
+		return fmt.Errorf("flush transfer packet: %w", err)
+	}
+	// Allow the transfer packet to reach the client before the listener closes the
+	// underlying RakNet connection.
+	select {
+	case <-ctx.Done():
+	case <-time.After(200 * time.Millisecond):
+	}
 	return nil
 }
 
@@ -537,6 +548,51 @@ func (m *Manager) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
 		Reason:  packet.DisconnectReasonKicked,
 		Message: msg,
 	})
+}
+
+const relayCheckInterval = 15 * time.Second
+
+func (m *Manager) verifyRelayTarget(ctx context.Context, timeout time.Duration) error {
+	if m.relay.RemoteAddress == "" || !m.relay.VerifyTarget {
+		return nil
+	}
+
+	m.relayCheck.mu.Lock()
+	if !m.relayCheck.lastCheck.IsZero() && time.Since(m.relayCheck.lastCheck) < relayCheckInterval {
+		cachedErr := m.relayCheck.err
+		m.relayCheck.mu.Unlock()
+		return cachedErr
+	}
+	m.relayCheck.mu.Unlock()
+
+	pingCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func(addr string) {
+		_, err := raknet.Ping(addr)
+		result <- err
+	}(m.relay.RemoteAddress)
+
+	var err error
+	select {
+	case err = <-result:
+	case <-pingCtx.Done():
+		err = pingCtx.Err()
+	}
+
+	if err != nil {
+		err = fmt.Errorf("ping relay target %s: %w", m.relay.RemoteAddress, err)
+	} else {
+		m.log.Debugf("relay target %s reachable", m.relay.RemoteAddress)
+	}
+
+	m.relayCheck.mu.Lock()
+	m.relayCheck.lastCheck = time.Now()
+	m.relayCheck.err = err
+	m.relayCheck.mu.Unlock()
+
+	return err
 }
 
 func (s *SubSession) UpdateLastPing() {
