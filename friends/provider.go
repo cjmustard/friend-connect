@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cjmustard/consoleconnect/broadcast/account"
-	"github.com/cjmustard/consoleconnect/broadcast/constants"
-	"github.com/cjmustard/consoleconnect/broadcast/xbox"
+	"github.com/cjmustard/friend-connect/account"
+	"github.com/cjmustard/friend-connect/constants"
+	"github.com/cjmustard/friend-connect/xbox"
 )
 
 type XboxProvider struct {

@@ -27,15 +27,14 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 
-	"github.com/cjmustard/consoleconnect/broadcast/account"
-	"github.com/cjmustard/consoleconnect/broadcast/constants"
-	"github.com/cjmustard/consoleconnect/broadcast/logger"
-	"github.com/cjmustard/consoleconnect/broadcast/nether"
-	"github.com/cjmustard/consoleconnect/broadcast/xbox"
+	"github.com/cjmustard/friend-connect/account"
+	"github.com/cjmustard/friend-connect/constants"
+	"github.com/cjmustard/friend-connect/nether"
+	"github.com/cjmustard/friend-connect/xbox"
 )
 
 type Server struct {
-	log      *logger.Logger
+	log      *slog.Logger
 	accounts *account.Store
 	listener *minecraft.Listener
 
@@ -106,9 +105,12 @@ type relayCheckState struct {
 	err       error
 }
 
-func NewServer(log *logger.Logger, accounts *account.Store, netherHub *nether.SignalingHub, httpClient *http.Client) *Server {
+func NewServer(log *slog.Logger, accounts *account.Store, netherHub *nether.SignalingHub, httpClient *http.Client) *Server {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	if log == nil {
+		log = slog.Default()
 	}
 	return &Server{
 		log:             log,
@@ -175,7 +177,7 @@ func (m *Server) startAccount(acct *account.Account) {
 	ctx := m.sessionContext()
 	go func() {
 		if err := m.ensureSession(ctx, acct); err != nil {
-			m.log.Errorf("create session for %s: %v", acct.Gamertag(), err)
+			m.log.Error("create session", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 		}
 	}()
 	go m.runPresence(ctx, acct)
@@ -243,7 +245,7 @@ func (m *Server) runPresence(ctx context.Context, acct *account.Account) {
 
 		delay, err := m.updatePresence(ctx, acct)
 		if err != nil {
-			m.log.Errorf("presence update for %s: %v", acct.Gamertag(), err)
+			m.log.Error("presence update", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -267,7 +269,7 @@ func (m *Server) runPresence(ctx context.Context, acct *account.Account) {
 
 func (m *Server) updatePresence(ctx context.Context, acct *account.Account) (time.Duration, error) {
 	if err := m.ensureSession(ctx, acct); err != nil {
-		m.log.Errorf("ensure session for %s: %v", acct.Gamertag(), err)
+		m.log.Error("ensure session", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 	}
 	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
 	if err != nil {
@@ -470,7 +472,7 @@ func (m *Server) refreshSessions(ctx context.Context) {
 		case <-ticker.C:
 			m.accounts.WithAccounts(func(acct *account.Account) {
 				if err := m.ensureSession(ctx, acct); err != nil {
-					m.log.Errorf("refresh session for %s: %v", acct.Gamertag(), err)
+					m.log.Error("refresh session", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 				}
 			})
 		}
@@ -505,10 +507,10 @@ func (m *Server) Listen(ctx context.Context, opts Options) error {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			m.log.Errorf("accept connection: %v", err)
+			m.log.Error("accept connection", slog.Any("error", err))
 			continue
 		}
-		m.log.Debugf("client connected: %s", conn.RemoteAddr())
+		m.log.Debug("client connected", slog.Any("remote", conn.RemoteAddr()))
 		go m.handleConn(ctx, conn.(*minecraft.Conn))
 	}
 }
@@ -532,7 +534,7 @@ func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
 
 	go m.accounts.WithAccounts(func(acct *account.Account) {
 		if err := m.ensureSession(context.Background(), acct); err != nil {
-			m.log.Errorf("update session for %s: %v", acct.Gamertag(), err)
+			m.log.Error("update session", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 		}
 	})
 }
@@ -568,7 +570,7 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 				return
 			}
-			m.log.Errorf("wait nether signaling for %s: %v", acct.Gamertag(), err)
+			m.log.Error("wait nether signaling", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 			time.Sleep(time.Second)
 			continue
 		}
@@ -602,7 +604,7 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 			PacketFunc:     m.handlePackets,
 		}.Listen(networkName, "")
 		if err != nil {
-			m.log.Errorf("listen nether for %s: %v", acct.Gamertag(), err)
+			m.log.Error("listen nether", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 			select {
 			case <-ctx.Done():
 				return
@@ -611,7 +613,7 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 			continue
 		}
 
-		m.log.Infof("nether listener ready for %s (network %d)", acct.Gamertag(), sig.NetworkID())
+		m.log.Info("nether listener ready", slog.String("gamertag", acct.Gamertag()), slog.Uint64("network", sig.NetworkID()))
 
 		acceptCtx, cancel := context.WithCancel(ctx)
 		go func() {
@@ -629,10 +631,10 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 				if errors.Is(err, net.ErrClosed) || acceptCtx.Err() != nil {
 					break
 				}
-				m.log.Errorf("accept nether connection: %v", err)
+				m.log.Error("accept nether connection", slog.Any("error", err))
 				continue
 			}
-			m.log.Debugf("nether client connected: %s", conn.RemoteAddr())
+			m.log.Debug("nether client connected", slog.Any("remote", conn.RemoteAddr()))
 			go m.handleConn(acceptCtx, conn.(*minecraft.Conn))
 		}
 
@@ -643,7 +645,7 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 		case <-ctx.Done():
 			return
 		case <-doneCh:
-			m.log.Warnf("nether listener for %s stopped, awaiting reconnection", acct.Gamertag())
+			m.log.Warn("nether listener stopped", slog.String("gamertag", acct.Gamertag()))
 		}
 	}
 }
@@ -666,9 +668,9 @@ func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 				return
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
-				m.log.Warnf("timed out waiting for transfer flag for %s", addr)
+				m.log.Warn("timed out waiting for transfer flag", slog.String("address", addr))
 			} else {
-				m.log.Warnf("no pending transfer available for %s", addr)
+				m.log.Warn("no pending transfer available", slog.String("address", addr))
 			}
 			m.notifyNoPendingTransfer(conn)
 			return
@@ -683,7 +685,7 @@ func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	gameData := m.gameDataFor(host)
 
 	if err := conn.StartGame(gameData); err != nil {
-		m.log.Errorf("start game: %v", err)
+		m.log.Error("start game", slog.Any("error", err))
 		return
 	}
 
@@ -704,12 +706,12 @@ func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 			clientName = identity.DisplayName
 		}
 		if host != nil {
-			m.log.Infof("transferring %s to %s for %s", clientName, m.relay.RemoteAddress, host.Gamertag())
+			m.log.Info("transferring client", slog.String("client", clientName), slog.String("target", m.relay.RemoteAddress), slog.String("host", host.Gamertag()))
 		} else {
-			m.log.Infof("transferring %s to %s", clientName, m.relay.RemoteAddress)
+			m.log.Info("transferring client", slog.String("client", clientName), slog.String("target", m.relay.RemoteAddress))
 		}
 		if err := m.transferClient(ctx, conn); err != nil {
-			m.log.Errorf("relay transfer: %v", err)
+			m.log.Error("relay transfer", slog.Any("error", err))
 			m.notifyTransferFailure(conn, err)
 		}
 		return
@@ -897,7 +899,7 @@ func (m *Server) verifyRelayTarget(ctx context.Context, timeout time.Duration) e
 	if err != nil {
 		err = fmt.Errorf("ping relay target %s: %w", m.relay.RemoteAddress, err)
 	} else {
-		m.log.Debugf("relay target %s reachable", m.relay.RemoteAddress)
+		m.log.Debug("relay target reachable", slog.String("address", m.relay.RemoteAddress))
 	}
 
 	m.relayCheck.mu.Lock()

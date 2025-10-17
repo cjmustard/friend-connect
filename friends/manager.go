@@ -3,11 +3,11 @@ package friends
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/cjmustard/consoleconnect/broadcast/account"
-	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	"github.com/cjmustard/friend-connect/account"
 )
 
 type Friend struct {
@@ -40,7 +40,7 @@ type Request struct {
 }
 
 type Manager struct {
-	log      *logger.Logger
+	log      *slog.Logger
 	accounts *account.Store
 	provider Provider
 	friends  map[string][]Friend
@@ -48,7 +48,7 @@ type Manager struct {
 	opts     Options
 }
 
-func NewManager(log *logger.Logger, accounts *account.Store, provider Provider) *Manager {
+func NewManager(log *slog.Logger, accounts *account.Store, provider Provider) *Manager {
 	if provider == nil {
 		provider = NewXboxProvider(nil)
 	}
@@ -84,7 +84,7 @@ func (m *Manager) Run(ctx context.Context) {
 
 func (m *Manager) syncAndProcess(ctx context.Context) {
 	if err := m.Sync(ctx); err != nil {
-		m.log.Errorf("friend sync: %v", err)
+		m.log.Error("friend sync", slog.Any("error", err))
 	}
 
 	if m.opts.AutoAdd {
@@ -107,7 +107,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 			defer wg.Done()
 			friends, err := m.provider.ListFriends(ctx, ac)
 			if err != nil {
-				m.log.Errorf("list friends for %s: %v", ac.Gamertag(), err)
+				m.log.Error("list friends", slog.String("gamertag", ac.Gamertag()), slog.Any("error", err))
 				once.Do(func() { firstErr = err })
 				return
 			}
@@ -132,9 +132,9 @@ func (m *Manager) autoFollowBack(ctx context.Context) {
 			}
 			if fr.Following && !fr.Followed {
 				if err := m.provider.AddFriendByXUID(ctx, acct, fr.XUID, fr.Gamertag); err != nil {
-					m.log.Errorf("auto follow %s -> %s: %v", tag, fr.Gamertag, err)
+					m.log.Error("auto follow", slog.String("from", tag), slog.String("to", fr.Gamertag), slog.Any("error", err))
 				} else {
-					m.log.Infof("followed back %s (%s)", fr.Gamertag, fr.XUID)
+					m.log.Info("followed back", slog.String("gamertag", fr.Gamertag), slog.String("xuid", fr.XUID))
 				}
 			}
 		}
@@ -145,7 +145,7 @@ func (m *Manager) acceptPending(ctx context.Context) {
 	m.accounts.WithAccounts(func(acct *account.Account) {
 		requests, err := m.provider.PendingRequests(ctx, acct)
 		if err != nil {
-			m.log.Errorf("fetch friend requests for %s: %v", acct.Gamertag(), err)
+			m.log.Error("fetch friend requests", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 			return
 		}
 		if len(requests) == 0 {
@@ -157,7 +157,7 @@ func (m *Manager) acceptPending(ctx context.Context) {
 		}
 		accepted, err := m.provider.AcceptRequests(ctx, acct, xuids)
 		if err != nil {
-			m.log.Errorf("accept friend requests for %s: %v", acct.Gamertag(), err)
+			m.log.Error("accept friend requests", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 			return
 		}
 		if len(accepted) == 0 {
@@ -168,7 +168,7 @@ func (m *Manager) acceptPending(ctx context.Context) {
 			if name == "" {
 				name = r.XUID
 			}
-			m.log.Infof("accepted friend request from %s", name)
+			m.log.Info("accepted friend request", slog.String("from", name))
 		}
 	})
 }
@@ -179,7 +179,7 @@ func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
 	}
 	m.accounts.WithAccounts(func(acct *account.Account) {
 		if err := m.provider.AddFriend(ctx, acct, gamertag); err != nil {
-			m.log.Errorf("auto add %s to %s: %v", gamertag, acct.Gamertag(), err)
+			m.log.Error("auto add friend", slog.String("gamertag", gamertag), slog.String("account", acct.Gamertag()), slog.Any("error", err))
 		}
 	})
 	return nil

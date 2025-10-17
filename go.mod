@@ -1,4 +1,4 @@
-module github.com/cjmustard/consoleconnect
+module github.com/cjmustard/friend-connect
 
 go 1.24.0
 

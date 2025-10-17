@@ -4,55 +4,62 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/cjmustard/consoleconnect/broadcast"
-	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	friendconnect "github.com/cjmustard/friend-connect"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
 
-const tokenFile = "assets/token.tok"
+const (
+	tokenFile       = "assets/token.tok"
+	listenerAddress = "0.0.0.0:19132"
+	listenerName    = "Console Connect"
+	listenerMessage = "Minecraft Presence Relay"
+	relayTimeout    = 5 * time.Second
+)
 
 func main() {
-	token := ensureToken()
+	token := ensureToken(tokenFile)
 
-	loggr := logger.New()
-	loggr.SetLevel(logger.LevelWarn)
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn})
+	loggr := slog.New(handler)
 
-	opts := broadcast.Options{
+	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token},
-		Friends: broadcast.FriendOptions{
+		Friends: friendconnect.FriendOptions{
 			AutoAccept: true,
 			AutoAdd:    true,
 			SyncTicker: time.Minute,
 		},
-		Listener: broadcast.ListenerOptions{
-			Address: "0.0.0.0:19132",
-			Name:    "Console Connect",
-			Message: "Minecraft Presence Relay",
+		Listener: friendconnect.ListenerOptions{
+			Address: listenerAddress,
+			Name:    listenerName,
+			Message: listenerMessage,
 		},
-		Relay: broadcast.RelayOptions{
-			RemoteAddress: "127.0.0.1:19132",
-			VerifyTarget:  true,
-			Timeout:       5 * time.Second,
+		Relay: friendconnect.RelayOptions{
+			RemoteAddress: "",
+			VerifyTarget:  false,
+			Timeout:       relayTimeout,
 		},
 		Logger: loggr,
 	}
 
-	svc, err := broadcast.New(opts)
+	svc, err := friendconnect.New(opts)
 	if err != nil {
-		log.Fatalf("build broadcaster: %v", err)
+		log.Fatalf("build friendconnect: %v", err)
 	}
 
 	if err := svc.Run(context.Background()); err != nil {
-		log.Fatalf("broadcaster stopped: %v", err)
+		log.Fatalf("friendconnect stopped: %v", err)
 	}
 }
 
-func ensureToken() *oauth2.Token {
-	src := tokenSource()
+func ensureToken(tokenPath string) *oauth2.Token {
+	src := tokenSource(tokenPath)
 	tok, err := src.Token()
 	if err != nil {
 		log.Fatalf("obtain refresh token: %v", err)
@@ -64,13 +71,14 @@ func ensureToken() *oauth2.Token {
 	return &clone
 }
 
-func tokenSource() oauth2.TokenSource {
-	if err := os.MkdirAll("assets", 0o755); err != nil {
+func tokenSource(tokenPath string) oauth2.TokenSource {
+	dir := filepath.Dir(tokenPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		log.Fatalf("prepare token cache: %v", err)
 	}
 
 	token := new(oauth2.Token)
-	if data, err := os.ReadFile(tokenFile); err == nil {
+	if data, err := os.ReadFile(tokenPath); err == nil {
 		_ = json.Unmarshal(data, token)
 	} else {
 		fresh, reqErr := auth.RequestLiveToken()
@@ -95,7 +103,7 @@ func tokenSource() oauth2.TokenSource {
 	}
 
 	if data, err := json.Marshal(tok); err == nil {
-		if writeErr := os.WriteFile(tokenFile, data, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(tokenPath, data, 0o644); writeErr != nil {
 			log.Printf("warning: failed to persist token cache: %v", writeErr)
 		}
 	}

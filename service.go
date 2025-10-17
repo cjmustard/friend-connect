@@ -1,4 +1,4 @@
-package broadcast
+package friendconnect
 
 import (
 	"context"
@@ -10,16 +10,17 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"golang.org/x/oauth2"
 
-	"github.com/cjmustard/consoleconnect/broadcast/account"
-	"github.com/cjmustard/consoleconnect/broadcast/friends"
-	"github.com/cjmustard/consoleconnect/broadcast/logger"
-	"github.com/cjmustard/consoleconnect/broadcast/nether"
-	"github.com/cjmustard/consoleconnect/broadcast/session"
+	"github.com/cjmustard/friend-connect/account"
+	"github.com/cjmustard/friend-connect/friends"
+	"github.com/cjmustard/friend-connect/nether"
+	"github.com/cjmustard/friend-connect/session"
+	"log/slog"
+	"os"
 )
 
 type Service struct {
 	opts     Options
-	log      *logger.Logger
+	log      *slog.Logger
 	accounts *account.Store
 	friends  *friends.Manager
 	sessions *session.Server
@@ -34,7 +35,7 @@ func New(opts Options) (*Service, error) {
 
 	loggr := opts.Logger
 	if loggr == nil {
-		loggr = logger.New()
+		loggr = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
 	acctStore := account.NewStore()
 	for _, tok := range opts.Tokens {
@@ -46,16 +47,16 @@ func New(opts Options) (*Service, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	provider := friends.NewXboxProvider(httpClient)
-	friendMgr := friends.NewManager(loggr, acctStore, provider)
+	friendMgr := friends.NewManager(loggr.With("component", "friends"), acctStore, provider)
 	friendMgr.Configure(friends.Options{
 		AutoAccept: opts.Friends.AutoAccept,
 		AutoAdd:    opts.Friends.AutoAdd,
 		SyncEvery:  opts.Friends.SyncTicker,
 	})
 
-	netherHub := nether.NewHub(loggr, acctStore)
+	netherHub := nether.NewHub(loggr.With("component", "nether"), acctStore)
 
-	sessionMgr := session.NewServer(loggr, acctStore, netherHub, httpClient)
+	sessionMgr := session.NewServer(loggr.With("component", "session"), acctStore, netherHub, httpClient)
 	sessionMgr.ConfigureRelay(session.RelayOptions{
 		RemoteAddress: opts.Relay.RemoteAddress,
 		VerifyTarget:  opts.Relay.VerifyTarget,
@@ -120,7 +121,7 @@ func (s *Service) Run(ctx context.Context) error {
 		if foreign, err := minecraft.NewForeignStatusProvider(addr); err == nil {
 			listenerProvider = foreign
 		} else {
-			s.log.Warnf("relay status provider for %s unavailable: %v", addr, err)
+			s.log.Warn("relay status provider unavailable", slog.String("address", addr), slog.Any("error", err))
 		}
 	}
 
