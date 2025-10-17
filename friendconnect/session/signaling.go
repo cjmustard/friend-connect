@@ -17,7 +17,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth/franchise/signaling"
 	"golang.org/x/oauth2"
 
-	"github.com/cjmustard/friendconnect/account"
+	"github.com/cjmustard/friend-connect/friendconnect/account"
 )
 
 type SignalingHub struct {

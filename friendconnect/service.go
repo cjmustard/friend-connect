@@ -10,9 +10,9 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"golang.org/x/oauth2"
 
-	"github.com/cjmustard/friendconnect/account"
-	"github.com/cjmustard/friendconnect/friends"
-	"github.com/cjmustard/friendconnect/session"
+	"github.com/cjmustard/friend-connect/friendconnect/account"
+	"github.com/cjmustard/friend-connect/friendconnect/friends"
+	"github.com/cjmustard/friend-connect/friendconnect/session"
 	"log/slog"
 	"os"
 )

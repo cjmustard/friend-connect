@@ -27,8 +27,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 
-	"github.com/cjmustard/friendconnect/account"
-	"github.com/cjmustard/friendconnect/constants"
+	"github.com/cjmustard/friend-connect/friendconnect/account"
+	"github.com/cjmustard/friend-connect/friendconnect/constants"
 )
 
 type Server struct {
