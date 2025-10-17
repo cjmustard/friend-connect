@@ -1,10 +1,10 @@
-package broadcast
+package friendconnect
 
 import (
 	"time"
 
-	"github.com/cjmustard/consoleconnect/broadcast/logger"
 	"golang.org/x/oauth2"
+	"log/slog"
 )
 
 type Options struct {
@@ -12,7 +12,7 @@ type Options struct {
 	Friends  FriendOptions
 	Listener ListenerOptions
 	Relay    RelayOptions
-	Logger   *logger.Logger
+	Logger   *slog.Logger
 }
 
 type FriendOptions struct {

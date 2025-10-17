@@ -11,8 +11,8 @@ import (
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 
-	"github.com/cjmustard/consoleconnect/broadcast/constants"
-	"github.com/cjmustard/consoleconnect/broadcast/xbox"
+	"github.com/cjmustard/friend-connect/constants"
+	"github.com/cjmustard/friend-connect/xbox"
 )
 
 type Status int
@@ -123,21 +123,6 @@ func (s *Store) Get(gamertag string) (*Account, bool) {
 	return acct, ok
 }
 
-func (s *Store) All() []Account {
-	s.mu.RLock()
-	accounts := make([]*Account, 0, len(s.accounts))
-	for _, acct := range s.accounts {
-		accounts = append(accounts, acct)
-	}
-	s.mu.RUnlock()
-
-	result := make([]Account, 0, len(accounts))
-	for _, acct := range accounts {
-		result = append(result, acct.Snapshot())
-	}
-	return result
-}
-
 func (s *Store) WithAccounts(fn func(*Account)) {
 	s.mu.RLock()
 	accounts := make([]*Account, 0, len(s.accounts))
@@ -218,17 +203,6 @@ func (a *Account) Metadata(key string) (any, bool) {
 	}
 	v, ok := a.metadata[key]
 	return v, ok
-}
-
-func (a *Account) Snapshot() Account {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	copy := *a
-	copy.metadata = map[string]any{}
-	for k, v := range a.metadata {
-		copy.metadata[k] = v
-	}
-	return copy
 }
 
 func cloneToken(tok *oauth2.Token) *oauth2.Token {

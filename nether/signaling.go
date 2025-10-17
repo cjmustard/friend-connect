@@ -17,12 +17,11 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth/franchise/signaling"
 	"golang.org/x/oauth2"
 
-	"github.com/cjmustard/consoleconnect/broadcast/account"
-	"github.com/cjmustard/consoleconnect/broadcast/logger"
+	"github.com/cjmustard/friend-connect/account"
 )
 
 type SignalingHub struct {
-	log      *logger.Logger
+	log      *slog.Logger
 	accounts *account.Store
 
 	mu       sync.Mutex
@@ -60,7 +59,7 @@ type SignalingSession struct {
 type notifier struct {
 	done chan struct{}
 	once sync.Once
-	log  *logger.Logger
+	log  *slog.Logger
 	tag  string
 	sess *SignalingSession
 }
@@ -72,33 +71,33 @@ func (n *notifier) NotifySignal(signal *nethernet.Signal) {
 
 	switch signal.Type {
 	case nethernet.SignalTypeOffer:
-		n.log.Debugf("nethernet connection request for %s (connection %d, network %d)", n.tag, signal.ConnectionID, signal.NetworkID)
+		n.log.Debug("nethernet connection request", slog.String("tag", n.tag), slog.Uint64("connection", signal.ConnectionID), slog.Uint64("network", signal.NetworkID))
 		if n.sess != nil {
 			n.sess.flagTransfer()
 		}
 	case nethernet.SignalTypeAnswer:
-		n.log.Debugf("nethernet connection established for %s (connection %d)", n.tag, signal.ConnectionID)
+		n.log.Debug("nethernet connection established", slog.String("tag", n.tag), slog.Uint64("connection", signal.ConnectionID))
 	case nethernet.SignalTypeError:
 		if signal.Data != "" {
-			n.log.Warnf("nethernet connection error for %s (connection %d): %s", n.tag, signal.ConnectionID, signal.Data)
+			n.log.Warn("nethernet connection error", slog.String("tag", n.tag), slog.Uint64("connection", signal.ConnectionID), slog.String("message", signal.Data))
 		} else {
-			n.log.Warnf("nethernet connection error for %s (connection %d)", n.tag, signal.ConnectionID)
+			n.log.Warn("nethernet connection error", slog.String("tag", n.tag), slog.Uint64("connection", signal.ConnectionID))
 		}
 	default:
-		n.log.Debugf("nethernet signal for %s: type=%s connection=%d", n.tag, signal.Type, signal.ConnectionID)
+		n.log.Debug("nethernet signal", slog.String("tag", n.tag), slog.String("type", string(signal.Type)), slog.Uint64("connection", signal.ConnectionID))
 	}
 }
 
 func (n *notifier) NotifyError(err error) {
 	if err != nil && !errors.Is(err, nethernet.ErrSignalingStopped) && n.log != nil {
-		n.log.Errorf("nethernet signaling error for %s: %v", n.tag, err)
+		n.log.Error("nethernet signaling error", slog.String("tag", n.tag), slog.Any("error", err))
 	}
 	n.once.Do(func() { close(n.done) })
 }
 
-func NewHub(log *logger.Logger, accounts *account.Store) *SignalingHub {
+func NewHub(log *slog.Logger, accounts *account.Store) *SignalingHub {
 	if log == nil {
-		log = logger.New()
+		log = slog.Default()
 	}
 	return &SignalingHub{
 		log:      log,
@@ -260,7 +259,7 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 
 		src := acct.TokenSource()
 		if src == nil {
-			m.log.Errorf("missing token source for %s", acct.Gamertag())
+			m.log.Error("missing token source", slog.String("gamertag", acct.Gamertag()))
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -279,7 +278,7 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 			if ctx.Err() != nil {
 				return
 			}
-			m.log.Errorf("dial nethernet for %s: %v", acct.Gamertag(), err)
+			m.log.Error("dial nethernet", slog.String("gamertag", acct.Gamertag()), slog.Any("error", err))
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -295,7 +294,7 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 		done := make(chan struct{})
 		sess.setSignaling(conn, done)
 		sess.readyOnce.Do(func() { close(sess.ready) })
-		m.log.Debugf("nethernet signaling ready for %s (network %d)", acct.Gamertag(), sess.networkID)
+		m.log.Debug("nethernet signaling ready", slog.String("gamertag", acct.Gamertag()), slog.Uint64("network", sess.networkID))
 
 		stop := conn.Notify(&notifier{done: done, log: m.log, tag: acct.Gamertag(), sess: sess})
 
@@ -312,7 +311,7 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 			if ctx.Err() != nil {
 				return
 			}
-			m.log.Warnf("nethernet signaling disconnected for %s, retrying", acct.Gamertag())
+			m.log.Warn("nethernet signaling disconnected", slog.String("gamertag", acct.Gamertag()))
 			continue
 		}
 	}
@@ -402,7 +401,7 @@ func (m *SignalingHub) enqueuePending(sess *SignalingSession) {
 				acct = sess.account.Gamertag()
 			}
 			if acct != "" {
-				m.log.Debugf("pending transfer queue full for %s", acct)
+				m.log.Debug("pending transfer queue full", slog.String("gamertag", acct))
 			} else {
 				m.log.Debug("pending transfer queue full")
 			}
