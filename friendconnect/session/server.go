@@ -29,13 +29,12 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 
-	"github.com/cjmustard/friend-connect/friendconnect/account"
-	"github.com/cjmustard/friend-connect/friendconnect/constants"
+	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
 
 type Server struct {
 	log      *log.Logger
-	accounts *account.Store
+	accounts *xbox.Store
 	listener *minecraft.Listener
 
 	conns  map[string]*minecraft.Conn
@@ -60,6 +59,8 @@ type Server struct {
 
 	relay RelayOptions
 
+	viewership ViewershipOptions
+
 	relayCheck relayCheckState
 
 	entityIDs atomic.Uint64
@@ -82,7 +83,7 @@ type Options struct {
 }
 
 type ClientSession struct {
-	Account  *account.Account
+	Account  *xbox.Account
 	Conn     *minecraft.Conn
 	LastPing time.Time
 	Metadata map[string]any
@@ -99,13 +100,41 @@ type RelayOptions struct {
 	Timeout       time.Duration
 }
 
+// ViewershipOptions defines how the session appears in Xbox Live and server browsers.
+// These settings control the visibility, accessibility, and display information
+// for the Minecraft session that will be broadcast to friends and other players.
+type ViewershipOptions struct {
+	// Joinability controls who can join the session (friends only, public, etc.)
+	Joinability string
+	// MaxMemberCount is the maximum number of players allowed to join the session
+	MaxMemberCount int
+	// MemberCount is the current number of players in the session
+	MemberCount int
+	// BroadcastSetting determines how visible the session is to others
+	BroadcastSetting int32
+	// WorldType is the game mode displayed to players (Survival, Creative, etc.)
+	WorldType string
+	// WorldName is the name of the world/server that will be displayed
+	WorldName string
+	// HostName is the name of the session host shown to other players
+	HostName string
+	// LanGame indicates whether this session is restricted to local network only
+	LanGame bool
+	// OnlineCrossPlatformGame enables cross-platform play between PC, mobile, and console
+	OnlineCrossPlatformGame bool
+	// CrossPlayDisabled disables cross-play functionality between different platforms
+	CrossPlayDisabled bool
+}
+
 type relayCheckState struct {
 	mu        sync.Mutex
 	lastCheck time.Time
 	err       error
 }
 
-func NewServer(logger *log.Logger, accounts *account.Store, netherHub *SignalingHub, httpClient *http.Client) *Server {
+// NewServer creates a new Minecraft server instance with the provided dependencies.
+// The server handles Xbox Live session announcements and client connections.
+func NewServer(logger *log.Logger, accounts *xbox.Store, netherHub *SignalingHub, httpClient *http.Client) *Server {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -124,9 +153,22 @@ func NewServer(logger *log.Logger, accounts *account.Store, netherHub *Signaling
 		statusMeta:      map[string]*statusMetadata{},
 		startedAccounts: map[string]struct{}{},
 		netherAccounts:  map[string]struct{}{},
+		viewership: ViewershipOptions{
+			Joinability:             room.JoinabilityJoinableByFriends,
+			MaxMemberCount:          8,
+			MemberCount:             1,
+			BroadcastSetting:        room.BroadcastSettingFriendsOfFriends,
+			WorldType:               "Survival",
+			WorldName:               "",
+			HostName:                "",
+			LanGame:                 false,
+			OnlineCrossPlatformGame: true,
+			CrossPlayDisabled:       false,
+		},
 	}
 }
 
+// ConfigureRelay sets up the relay configuration for transferring clients to remote servers.
 func (m *Server) ConfigureRelay(opts RelayOptions) {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 5 * time.Second
@@ -134,12 +176,32 @@ func (m *Server) ConfigureRelay(opts RelayOptions) {
 	m.relay = opts
 }
 
+// ConfigureViewership sets up the viewership options for session announcements.
+func (m *Server) ConfigureViewership(opts ViewershipOptions) {
+	if opts.MaxMemberCount <= 0 {
+		opts.MaxMemberCount = 8
+	}
+	if opts.MemberCount <= 0 {
+		opts.MemberCount = 1
+	}
+	if opts.WorldType == "" {
+		opts.WorldType = "Survival"
+	}
+	if opts.Joinability == "" {
+		opts.Joinability = room.JoinabilityJoinableByFriends
+	}
+	if opts.BroadcastSetting == 0 {
+		opts.BroadcastSetting = room.BroadcastSettingFriendsOfFriends
+	}
+	m.viewership = opts
+}
+
 func (m *Server) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	m.setContext(ctx)
-	m.accounts.WithAccounts(func(acct *account.Account) {
+	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		m.startAccount(acct)
 	})
 	go m.refreshSessions(ctx)
@@ -161,7 +223,7 @@ func (m *Server) sessionContext() context.Context {
 	return ctx
 }
 
-func (m *Server) startAccount(acct *account.Account) {
+func (m *Server) startAccount(acct *xbox.Account) {
 	if acct == nil {
 		return
 	}
@@ -183,7 +245,7 @@ func (m *Server) startAccount(acct *account.Account) {
 	go m.runPresence(ctx, acct)
 }
 
-func (m *Server) AttachAccount(ctx context.Context, acct *account.Account) {
+func (m *Server) AttachAccount(ctx context.Context, acct *xbox.Account) {
 	if acct == nil {
 		return
 	}
@@ -215,7 +277,7 @@ func (m *Server) netherRuntime() (minecraft.ServerStatusProvider, context.Contex
 	return provider, ctx
 }
 
-func (m *Server) startNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
+func (m *Server) startNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *xbox.Account) {
 	if acct == nil || provider == nil || m.nether == nil {
 		return
 	}
@@ -233,7 +295,7 @@ func (m *Server) startNetherForAccount(ctx context.Context, provider minecraft.S
 	go m.listenNetherForAccount(ctx, provider, acct)
 }
 
-func (m *Server) runPresence(ctx context.Context, acct *account.Account) {
+func (m *Server) runPresence(ctx context.Context, acct *xbox.Account) {
 	backoff := 10 * time.Second
 	maxBackoff := 5 * time.Minute
 	for {
@@ -267,11 +329,11 @@ func (m *Server) runPresence(ctx context.Context, acct *account.Account) {
 	}
 }
 
-func (m *Server) updatePresence(ctx context.Context, acct *account.Account) (time.Duration, error) {
+func (m *Server) updatePresence(ctx context.Context, acct *xbox.Account) (time.Duration, error) {
 	if err := m.ensureSession(ctx, acct); err != nil {
 		m.log.Printf("ensure session failed for %s: %v", acct.Gamertag(), err)
 	}
-	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	tok, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return time.Minute, fmt.Errorf("token: %w", err)
 	}
@@ -279,7 +341,7 @@ func (m *Server) updatePresence(ctx context.Context, acct *account.Account) (tim
 		return time.Minute, fmt.Errorf("missing xuid for %s", acct.Gamertag())
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, constants.UserPresenceURL(tok.XUID), strings.NewReader(`{"state":"active"}`))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, xbox.UserPresenceURL(tok.XUID), strings.NewReader(`{"state":"active"}`))
 	if err != nil {
 		return time.Minute, err
 	}
@@ -304,7 +366,7 @@ func (m *Server) updatePresence(ctx context.Context, acct *account.Account) (tim
 		}
 	}
 
-	acct.UpdateStatus(account.StatusOnline, map[string]any{
+	acct.UpdateStatus(xbox.StatusOnline, map[string]any{
 		"heartbeatAfter":  heartbeat,
 		"presenceUpdated": time.Now(),
 	})
@@ -312,11 +374,11 @@ func (m *Server) updatePresence(ctx context.Context, acct *account.Account) (tim
 	return time.Duration(heartbeat) * time.Second, nil
 }
 
-func (m *Server) ensureSession(ctx context.Context, acct *account.Account) error {
+func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 	if acct == nil {
 		return errors.New("nil account")
 	}
-	tok, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	tok, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return fmt.Errorf("token: %w", err)
 	}
@@ -334,19 +396,19 @@ func (m *Server) ensureSession(ctx context.Context, acct *account.Account) error
 	return nil
 }
 
-func (m *Server) announcerFor(acct *account.Account) *room.XBLAnnouncer {
+func (m *Server) announcerFor(acct *xbox.Account) *room.XBLAnnouncer {
 	sessionID := acct.SessionID()
 	m.sessMu.Lock()
 	defer m.sessMu.Unlock()
 	if ann, ok := m.announcers[sessionID]; ok {
 		return ann
 	}
-	scid := uuid.MustParse(constants.ServiceConfigID)
+	scid := uuid.MustParse(xbox.ServiceConfigID)
 	ann := &room.XBLAnnouncer{
 		TokenSource: accountTokenSource{acct: acct},
 		SessionReference: mpsd.SessionReference{
 			ServiceConfigID: scid,
-			TemplateName:    constants.TemplateName,
+			TemplateName:    xbox.TemplateName,
 			Name:            strings.ToUpper(sessionID),
 		},
 		PublishConfig: mpsd.PublishConfig{Client: m.httpClient},
@@ -364,36 +426,37 @@ func (m *Server) storeSession(id string, sess *mpsd.Session) {
 	m.sessMu.Unlock()
 }
 
-func (m *Server) sessionFor(acct *account.Account) *mpsd.Session {
-	if acct == nil {
-		return nil
+func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
+	hostName := m.viewership.HostName
+	if hostName == "" {
+		hostName = defaultHostName(acct.Gamertag())
 	}
-	m.sessMu.RLock()
-	defer m.sessMu.RUnlock()
-	return m.sessions[acct.SessionID()]
-}
 
-func (m *Server) buildStatus(ctx context.Context, acct *account.Account, tok *account.Token) (room.Status, error) {
+	worldName := m.viewership.WorldName
+	if worldName == "" {
+		worldName = defaultWorldName(acct.Gamertag())
+	}
+
 	status := room.Status{
-		Joinability:             room.JoinabilityJoinableByFriends,
-		HostName:                defaultHostName(acct.Gamertag()),
+		Joinability:             m.viewership.Joinability,
+		HostName:                hostName,
 		OwnerID:                 tok.XUID,
 		Version:                 protocol.CurrentVersion,
-		WorldName:               defaultWorldName(acct.Gamertag()),
-		WorldType:               "Survival",
+		WorldName:               worldName,
+		WorldType:               m.viewership.WorldType,
 		Protocol:                protocol.CurrentProtocol,
-		MemberCount:             1,
-		MaxMemberCount:          8,
-		BroadcastSetting:        room.BroadcastSettingFriendsOfFriends,
-		LanGame:                 false,
-		OnlineCrossPlatformGame: true,
-		CrossPlayDisabled:       false,
+		MemberCount:             m.viewership.MemberCount,
+		MaxMemberCount:          m.viewership.MaxMemberCount,
+		BroadcastSetting:        m.viewership.BroadcastSetting,
+		LanGame:                 m.viewership.LanGame,
+		OnlineCrossPlatformGame: m.viewership.OnlineCrossPlatformGame,
+		CrossPlayDisabled:       m.viewership.CrossPlayDisabled,
 	}
 
 	meta := m.metadataFor(acct)
 	status.LevelID = meta.levelID
 
-	titleID, err := strconv.ParseInt(constants.TitleID, 10, 64)
+	titleID, err := strconv.ParseInt(xbox.TitleID, 10, 64)
 	if err != nil {
 		return room.Status{}, fmt.Errorf("parse title id: %w", err)
 	}
@@ -442,7 +505,7 @@ func (m *Server) listenerInfo() (uint16, string) {
 	return m.listenPort, m.listenGUID
 }
 
-func (m *Server) metadataFor(acct *account.Account) *statusMetadata {
+func (m *Server) metadataFor(acct *xbox.Account) *statusMetadata {
 	id := acct.SessionID()
 	m.metaMu.Lock()
 	defer m.metaMu.Unlock()
@@ -470,7 +533,7 @@ func (m *Server) refreshSessions(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.accounts.WithAccounts(func(acct *account.Account) {
+			m.accounts.WithAccounts(func(acct *xbox.Account) {
 				if err := m.ensureSession(ctx, acct); err != nil {
 					m.log.Printf("refresh session failed for %s: %v", acct.Gamertag(), err)
 				}
@@ -479,6 +542,7 @@ func (m *Server) refreshSessions(ctx context.Context) {
 	}
 }
 
+// Listen starts the server and begins accepting client connections.
 func (m *Server) Listen(ctx context.Context, opts Options) error {
 	if opts.Provider == nil {
 		opts.Provider = minecraft.NewStatusProvider("Broadcaster", "Minecraft Presence Relay")
@@ -531,7 +595,7 @@ func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
 	m.listenGUID = guid
 	m.listenMu.Unlock()
 
-	go m.accounts.WithAccounts(func(acct *account.Account) {
+	go m.accounts.WithAccounts(func(acct *xbox.Account) {
 		if err := m.ensureSession(context.Background(), acct); err != nil {
 			m.log.Printf("update session failed for %s: %v", acct.Gamertag(), err)
 		}
@@ -546,12 +610,12 @@ func (m *Server) listenNether(ctx context.Context, provider minecraft.ServerStat
 		ctx = context.Background()
 	}
 	m.setNetherRuntime(ctx, provider)
-	m.accounts.WithAccounts(func(acct *account.Account) {
+	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		m.startNetherForAccount(ctx, provider, acct)
 	})
 }
 
-func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *account.Account) {
+func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.ServerStatusProvider, acct *xbox.Account) {
 	if acct == nil || m.nether == nil {
 		return
 	}
@@ -650,7 +714,7 @@ func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 
 	requireFlag := m.relay.RemoteAddress != "" && m.nether != nil
 
-	var host *account.Account
+	var host *xbox.Account
 	if requireFlag {
 		var err error
 		host, err = m.waitForTransferFlag(ctx)
@@ -711,7 +775,7 @@ func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	<-ctx.Done()
 }
 
-func (m *Server) waitForTransferFlag(ctx context.Context) (*account.Account, error) {
+func (m *Server) waitForTransferFlag(ctx context.Context) (*xbox.Account, error) {
 	if m.nether == nil {
 		return nil, nil
 	}
@@ -735,7 +799,7 @@ func (m *Server) notifyNoPendingTransfer(conn *minecraft.Conn) {
 	_ = conn.Flush()
 }
 
-func (m *Server) gameDataFor(acct *account.Account) minecraft.GameData {
+func (m *Server) gameDataFor(acct *xbox.Account) minecraft.GameData {
 	runtimeID := m.entityIDs.Add(1)
 	worldName := defaultWorldName("")
 	if acct != nil {
@@ -775,27 +839,12 @@ func (m *Server) lookupClient(addr string) *ClientSession {
 	return m.subsessions[addr]
 }
 
-func (m *Server) trackClient(addr string, acct *account.Account, conn *minecraft.Conn) *ClientSession {
+func (m *Server) trackClient(addr string, acct *xbox.Account, conn *minecraft.Conn) *ClientSession {
 	subs := &ClientSession{Account: acct, Conn: conn, LastPing: time.Now(), Metadata: map[string]any{}}
 	m.subsMu.Lock()
 	m.subsessions[addr] = subs
 	m.subsMu.Unlock()
 	return subs
-}
-
-func (m *Server) ClientSnapshot() []map[string]any {
-	m.subsMu.RLock()
-	defer m.subsMu.RUnlock()
-	result := make([]map[string]any, 0, len(m.subsessions))
-	for addr, subs := range m.subsessions {
-		entry := subs.Snapshot()
-		entry["remoteAddr"] = addr
-		if subs.Account != nil {
-			entry["gamertag"] = subs.Account.Gamertag()
-		}
-		result = append(result, entry)
-	}
-	return result
 }
 
 func (m *Server) CloseClient(addr string) {
@@ -914,23 +963,11 @@ func (s *ClientSession) SetMetadata(key string, value any) {
 	s.mu.Unlock()
 }
 
-func (s *ClientSession) Snapshot() map[string]any {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	snapshot := map[string]any{
-		"lastPing": s.LastPing,
-	}
-	for k, v := range s.Metadata {
-		snapshot[k] = v
-	}
-	return snapshot
-}
-
 func defaultHostName(gamertag string) string {
 	if gamertag == "" {
 		return "Console Connect"
 	}
-	return fmt.Sprintf("%s's World", gamertag)
+	return gamertag
 }
 
 func defaultWorldName(gamertag string) string {
@@ -941,11 +978,11 @@ func defaultWorldName(gamertag string) string {
 }
 
 type accountTokenSource struct {
-	acct *account.Account
+	acct *xbox.Account
 }
 
 func (s accountTokenSource) Token() (xsapi.Token, error) {
-	tok, err := s.acct.Token(context.Background(), constants.RelyingPartyXboxLive)
+	tok, err := s.acct.Token(context.Background(), xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return nil, err
 	}
@@ -953,7 +990,7 @@ func (s accountTokenSource) Token() (xsapi.Token, error) {
 }
 
 type xsapiToken struct {
-	tok *account.Token
+	tok *xbox.Token
 }
 
 func (t xsapiToken) SetAuthHeader(req *http.Request) {

@@ -19,12 +19,12 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth/franchise/signaling"
 	"golang.org/x/oauth2"
 
-	"github.com/cjmustard/friend-connect/friendconnect/account"
+	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
 
 type SignalingHub struct {
 	log      *log.Logger
-	accounts *account.Store
+	accounts *xbox.Store
 
 	mu       sync.Mutex
 	sessions map[string]*SignalingSession
@@ -39,7 +39,7 @@ type SignalingHub struct {
 
 type SignalingSession struct {
 	manager *SignalingHub
-	account *account.Account
+	account *xbox.Account
 
 	networkID   uint64
 	networkName string
@@ -92,7 +92,7 @@ func (n *notifier) NotifyError(err error) {
 	n.once.Do(func() { close(n.done) })
 }
 
-func NewSignalingHub(logger *log.Logger, accounts *account.Store) *SignalingHub {
+func NewSignalingHub(logger *log.Logger, accounts *xbox.Store) *SignalingHub {
 	if logger == nil {
 		logger = log.New(os.Stdout, "", 0)
 	}
@@ -112,12 +112,12 @@ func (h *SignalingHub) Start(ctx context.Context) {
 		ctx = context.Background()
 	}
 	h.setContext(ctx)
-	h.accounts.WithAccounts(func(acct *account.Account) {
+	h.accounts.WithAccounts(func(acct *xbox.Account) {
 		h.startSession(acct)
 	})
 }
 
-func (h *SignalingHub) AttachAccount(acct *account.Account) {
+func (h *SignalingHub) AttachAccount(acct *xbox.Account) {
 	if acct == nil {
 		return
 	}
@@ -140,7 +140,7 @@ func (h *SignalingHub) sessionContext() context.Context {
 	return ctx
 }
 
-func (h *SignalingHub) startSession(acct *account.Account) {
+func (h *SignalingHub) startSession(acct *xbox.Account) {
 	if acct == nil {
 		return
 	}
@@ -153,7 +153,7 @@ func (h *SignalingHub) startSession(acct *account.Account) {
 	})
 }
 
-func (m *SignalingHub) NetworkID(ctx context.Context, acct *account.Account) (uint64, error) {
+func (m *SignalingHub) NetworkID(ctx context.Context, acct *xbox.Account) (uint64, error) {
 	if acct == nil {
 		return 0, errors.New("nil account")
 	}
@@ -166,7 +166,7 @@ func (m *SignalingHub) NetworkID(ctx context.Context, acct *account.Account) (ui
 	}
 }
 
-func (m *SignalingHub) NetworkName(acct *account.Account) string {
+func (m *SignalingHub) NetworkName(acct *xbox.Account) string {
 	if acct == nil {
 		return ""
 	}
@@ -177,7 +177,7 @@ func (m *SignalingHub) NetworkName(acct *account.Account) string {
 	return sess.network()
 }
 
-func (m *SignalingHub) WaitSignaling(ctx context.Context, acct *account.Account) (nethernet.Signaling, <-chan struct{}, error) {
+func (m *SignalingHub) WaitSignaling(ctx context.Context, acct *xbox.Account) (nethernet.Signaling, <-chan struct{}, error) {
 	if acct == nil {
 		return nil, nil, errors.New("nil account")
 	}
@@ -218,7 +218,7 @@ func (m *SignalingHub) RegisterNetwork(name string, factory func(*slog.Logger) m
 	m.networkMu.Unlock()
 }
 
-func (m *SignalingHub) sessionFor(acct *account.Account) *SignalingSession {
+func (m *SignalingHub) sessionFor(acct *xbox.Account) *SignalingSession {
 	if acct == nil {
 		return nil
 	}
@@ -241,7 +241,7 @@ func (m *SignalingHub) sessionFor(acct *account.Account) *SignalingSession {
 	return sess
 }
 
-func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, sess *SignalingSession) {
+func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess *SignalingSession) {
 	if acct == nil || sess == nil {
 		return
 	}
@@ -314,7 +314,7 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *account.Account, se
 
 // TokenSource exposes the underlying oauth2.TokenSource for the provided
 // account. If the account is nil, nil is returned.
-func (m *SignalingHub) TokenSource(acct *account.Account) oauth2.TokenSource {
+func (m *SignalingHub) TokenSource(acct *xbox.Account) oauth2.TokenSource {
 	if acct == nil {
 		return nil
 	}
@@ -406,7 +406,7 @@ func (m *SignalingHub) sessionsSnapshot() []*SignalingSession {
 	return sessions
 }
 
-func (m *SignalingHub) ClaimPending(ctx context.Context) *account.Account {
+func (m *SignalingHub) ClaimPending(ctx context.Context) *xbox.Account {
 	if m == nil {
 		return nil
 	}

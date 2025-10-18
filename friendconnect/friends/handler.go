@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cjmustard/friend-connect/friendconnect/account"
+	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
 
 type Friend struct {
@@ -20,12 +20,12 @@ type Friend struct {
 }
 
 type Provider interface {
-	ListFriends(ctx context.Context, acct *account.Account) ([]Friend, error)
-	AddFriend(ctx context.Context, acct *account.Account, gamertag string) error
-	AddFriendByXUID(ctx context.Context, acct *account.Account, xuid, gamertag string) error
-	RemoveFriend(ctx context.Context, acct *account.Account, gamertag string) error
-	PendingRequests(ctx context.Context, acct *account.Account) ([]Request, error)
-	AcceptRequests(ctx context.Context, acct *account.Account, xuids []string) ([]Request, error)
+	ListFriends(ctx context.Context, acct *xbox.Account) ([]Friend, error)
+	AddFriend(ctx context.Context, acct *xbox.Account, gamertag string) error
+	AddFriendByXUID(ctx context.Context, acct *xbox.Account, xuid, gamertag string) error
+	RemoveFriend(ctx context.Context, acct *xbox.Account, gamertag string) error
+	PendingRequests(ctx context.Context, acct *xbox.Account) ([]Request, error)
+	AcceptRequests(ctx context.Context, acct *xbox.Account, xuids []string) ([]Request, error)
 }
 
 type Options struct {
@@ -41,14 +41,14 @@ type Request struct {
 
 type Manager struct {
 	log      *log.Logger
-	accounts *account.Store
+	accounts *xbox.Store
 	provider Provider
 	friends  map[string][]Friend
 	mu       sync.RWMutex
 	opts     Options
 }
 
-func NewManager(log *log.Logger, accounts *account.Store, provider Provider) *Manager {
+func NewManager(log *log.Logger, accounts *xbox.Store, provider Provider) *Manager {
 	if provider == nil {
 		provider = NewXboxProvider(nil)
 	}
@@ -104,9 +104,9 @@ func (m *Manager) Sync(ctx context.Context) error {
 	var firstErr error
 	var once sync.Once
 
-	m.accounts.WithAccounts(func(acct *account.Account) {
+	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		wg.Add(1)
-		go func(ac *account.Account) {
+		go func(ac *xbox.Account) {
 			defer wg.Done()
 			tag := ac.Gamertag()
 
@@ -130,7 +130,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 }
 
 func (m *Manager) autoFollowBack(ctx context.Context) {
-	m.accounts.WithAccounts(func(acct *account.Account) {
+	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		tag := acct.Gamertag()
 		friends := m.Friends(tag)
 		followBackCount := 0
@@ -155,7 +155,7 @@ func (m *Manager) autoFollowBack(ctx context.Context) {
 }
 
 func (m *Manager) acceptPending(ctx context.Context) {
-	m.accounts.WithAccounts(func(acct *account.Account) {
+	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		tag := acct.Gamertag()
 		requests, err := m.provider.PendingRequests(ctx, acct)
 		if err != nil {
@@ -198,7 +198,7 @@ func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
 	}
 
 	addedCount := 0
-	m.accounts.WithAccounts(func(acct *account.Account) {
+	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		tag := acct.Gamertag()
 		if err := m.provider.AddFriend(ctx, acct, gamertag); err != nil {
 			m.log.Printf("auto add friend failed for %s -> %s: %v", tag, gamertag, err)
@@ -212,18 +212,6 @@ func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
 	}
 
 	return nil
-}
-
-func (m *Manager) Snapshot() map[string][]Friend {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	copy := make(map[string][]Friend, len(m.friends))
-	for k, v := range m.friends {
-		friends := make([]Friend, len(v))
-		copySlice(friends, v)
-		copy[k] = friends
-	}
-	return copy
 }
 
 func (m *Manager) Friends(gamertag string) []Friend {

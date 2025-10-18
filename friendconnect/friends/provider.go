@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cjmustard/friend-connect/friendconnect/account"
-	"github.com/cjmustard/friend-connect/friendconnect/constants"
+	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
 
 type XboxProvider struct {
@@ -26,17 +25,17 @@ func NewXboxProvider(client *http.Client) *XboxProvider {
 	return &XboxProvider{client: client}
 }
 
-func (p *XboxProvider) ListFriends(ctx context.Context, acct *account.Account) ([]Friend, error) {
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+func (p *XboxProvider) ListFriends(ctx context.Context, acct *xbox.Account) ([]Friend, error) {
+	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return nil, fmt.Errorf("fetch token: %w", err)
 	}
 
-	followers, err := p.fetchPeople(ctx, constants.FollowersURL, token)
+	followers, err := p.fetchPeople(ctx, xbox.FollowersURL, token)
 	if err != nil {
 		return nil, err
 	}
-	social, err := p.fetchPeople(ctx, constants.SocialURL, token)
+	social, err := p.fetchPeople(ctx, xbox.SocialURL, token)
 	if err != nil {
 		return nil, err
 	}
@@ -68,11 +67,11 @@ func (p *XboxProvider) ListFriends(ctx context.Context, acct *account.Account) (
 	return friends, nil
 }
 
-func (p *XboxProvider) AddFriend(ctx context.Context, acct *account.Account, gamertag string) error {
+func (p *XboxProvider) AddFriend(ctx context.Context, acct *xbox.Account, gamertag string) error {
 	if gamertag == "" {
 		return fmt.Errorf("missing gamertag")
 	}
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return fmt.Errorf("fetch token: %w", err)
 	}
@@ -83,15 +82,15 @@ func (p *XboxProvider) AddFriend(ctx context.Context, acct *account.Account, gam
 	return p.AddFriendByXUID(ctx, acct, xuid, gamertag)
 }
 
-func (p *XboxProvider) AddFriendByXUID(ctx context.Context, acct *account.Account, xuid, gamertag string) error {
+func (p *XboxProvider) AddFriendByXUID(ctx context.Context, acct *xbox.Account, xuid, gamertag string) error {
 	if xuid == "" {
 		return fmt.Errorf("missing xuid")
 	}
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return fmt.Errorf("fetch token: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, constants.PeopleURL(xuid), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, xbox.PeopleURL(xuid), nil)
 	if err != nil {
 		return err
 	}
@@ -108,11 +107,11 @@ func (p *XboxProvider) AddFriendByXUID(ctx context.Context, acct *account.Accoun
 	return nil
 }
 
-func (p *XboxProvider) RemoveFriend(ctx context.Context, acct *account.Account, gamertag string) error {
+func (p *XboxProvider) RemoveFriend(ctx context.Context, acct *xbox.Account, gamertag string) error {
 	if gamertag == "" {
 		return fmt.Errorf("missing gamertag")
 	}
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return fmt.Errorf("fetch token: %w", err)
 	}
@@ -120,7 +119,7 @@ func (p *XboxProvider) RemoveFriend(ctx context.Context, acct *account.Account, 
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, constants.PeopleURL(xuid), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, xbox.PeopleURL(xuid), nil)
 	if err != nil {
 		return err
 	}
@@ -137,7 +136,7 @@ func (p *XboxProvider) RemoveFriend(ctx context.Context, acct *account.Account, 
 	return nil
 }
 
-func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *account.Token) ([]person, error) {
+func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *xbox.Token) ([]person, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -164,7 +163,7 @@ func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *
 	return out.People, nil
 }
 
-func (p *XboxProvider) lookupXUID(ctx context.Context, token *account.Token, gamertag string) (string, error) {
+func (p *XboxProvider) lookupXUID(ctx context.Context, token *xbox.Token, gamertag string) (string, error) {
 	endpoint := fmt.Sprintf("https://profile.xboxlive.com/users/gt(%s)/profile/settings?settings=Gamertag", url.PathEscape(gamertag))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -196,8 +195,8 @@ func (p *XboxProvider) lookupXUID(ctx context.Context, token *account.Token, gam
 	return out.ProfileUsers[0].ID, nil
 }
 
-func (p *XboxProvider) PendingRequests(ctx context.Context, acct *account.Account) ([]Request, error) {
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+func (p *XboxProvider) PendingRequests(ctx context.Context, acct *xbox.Account) ([]Request, error) {
+	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return nil, fmt.Errorf("fetch token: %w", err)
 	}
@@ -240,11 +239,11 @@ func (p *XboxProvider) PendingRequests(ctx context.Context, acct *account.Accoun
 	return requests, nil
 }
 
-func (p *XboxProvider) AcceptRequests(ctx context.Context, acct *account.Account, xuids []string) ([]Request, error) {
+func (p *XboxProvider) AcceptRequests(ctx context.Context, acct *xbox.Account, xuids []string) ([]Request, error) {
 	if len(xuids) == 0 {
 		return nil, nil
 	}
-	token, err := acct.Token(ctx, constants.RelyingPartyXboxLive)
+	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
 		return nil, fmt.Errorf("fetch token: %w", err)
 	}
@@ -289,7 +288,7 @@ func (p *XboxProvider) AcceptRequests(ctx context.Context, acct *account.Account
 	return requests, nil
 }
 
-func applyCommonHeaders(req *http.Request, token *account.Token) {
+func applyCommonHeaders(req *http.Request, token *xbox.Token) {
 	req.Header.Set("Authorization", token.Header)
 	req.Header.Set("Content-Type", "application/json")
 }
