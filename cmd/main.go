@@ -59,11 +59,6 @@ func main() {
 						Subtitle: "Welcome hub for every visitor",
 						URI:      "https://mcxboxbroadcast.github.io/assets/gallery/spawn.png",
 					},
-					{
-						Title:    "Market District",
-						Subtitle: "Showcase of daily events",
-						URI:      "https://mcxboxbroadcast.github.io/assets/gallery/market.png",
-					},
 				},
 			},
 		},

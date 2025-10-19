@@ -99,5 +99,4 @@ func (o *Options) ApplyDefaults() {
 	if o.Viewership.BroadcastSetting == 0 {
 		o.Viewership.BroadcastSetting = room.BroadcastSettingFriendsOfFriends
 	}
-	o.Viewership.Gallery = o.Viewership.Gallery.normalized()
 }
