@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -136,11 +134,10 @@ func loadGalleryImage(path, worldName, hostName string) session.GalleryImage {
 	if err != nil {
 		log.Fatalf("load gallery image: %v", err)
 	}
-	encoded := base64.StdEncoding.EncodeToString(data)
 	return session.GalleryImage{
 		Title:       worldName,
 		Subtitle:    hostName,
-		URI:         fmt.Sprintf("data:%s;base64,%s", session.GalleryContentTypePNG, encoded),
+		Data:        data,
 		ContentType: session.GalleryContentTypePNG,
 		ImageType:   session.GalleryImageTypeScreenshot,
 	}
