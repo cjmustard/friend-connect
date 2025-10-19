@@ -21,6 +21,8 @@ func main() {
 
 	logger := log.New(os.Stdout, "", 0)
 
+	galleryImage := loadGalleryImage("assets/friend-connect.png")
+
 	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token}, // Xbox Live authentication tokens for connecting to Xbox services
 		Friends: friendconnect.FriendOptions{
@@ -51,13 +53,7 @@ func main() {
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
 			Gallery: session.GalleryOptions{
 				Title: "Highlights",
-				Items: []session.GalleryImage{
-					{
-						Title:    "Server Logo",
-						Subtitle: "blob",
-						URI:      "https://raw.githubusercontent.com/cjmustard/friend-connect/refs/heads/main/assets/friend-connect.png?token=GHSAT0AAAAAADKDKPL3FOS62GW5IYCGQAHC2HUTZNQ",
-					},
-				},
+				Items: []session.GalleryImage{galleryImage},
 			},
 		},
 		Logger: logger, // Logger instance for application logging and debugging output
@@ -128,4 +124,18 @@ func tokenSource(tokenPath string) oauth2.TokenSource {
 	}
 
 	return oauth2.ReuseTokenSource(tok, src)
+}
+
+func loadGalleryImage(path string) session.GalleryImage {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalf("load gallery image: %v", err)
+	}
+	return session.GalleryImage{
+		Title:       "Server Logo",
+		Subtitle:    "Friend Connect",
+		Data:        data,
+		ContentType: session.GalleryContentTypePNG,
+		ImageType:   session.GalleryImageTypeScreenshot,
+	}
 }
