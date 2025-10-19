@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,14 +20,13 @@ func main() {
 	token := ensureToken("assets/token.tok")
 
 	logger := log.New(os.Stdout, "", 0)
-	log.SetOutput(io.Discard)
 
 	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token}, // Xbox Live authentication tokens for connecting to Xbox services
 		Friends: friendconnect.FriendOptions{
 			AutoAccept: true,             // Automatically accept incoming friend requests without manual approval
 			AutoAdd:    true,             // Automatically add accepted friends to the current session
-			SyncTicker: 10 * time.Second, // Interval for synchronizing friend list with Xbox Live services
+			SyncTicker: 10 * time.Second, // Interval for synchronizing friend list with Xbox Live services (XBL API rate limit is 30/min)
 		},
 		Listener: friendconnect.ListenerOptions{
 			Address: "0.0.0.0:19132",            // Network address and port where the local server will listen for connections
@@ -38,7 +36,7 @@ func main() {
 		Relay: friendconnect.RelayOptions{
 			RemoteAddress: "zeqa.net:19132", // Target Minecraft server address that connections will be relayed to
 			VerifyTarget:  false,            // Whether to verify the target server is reachable before starting
-			Timeout:       5 * time.Second,  // Maximum time to wait when connecting to the target server
+			Timeout:       10 * time.Second, // Maximum time to wait when connecting to the target server
 		},
 		Viewership: session.ViewershipOptions{
 			MaxMemberCount:          4,                                     // Maximum number of players allowed to join the session
@@ -55,9 +53,9 @@ func main() {
 				Title: "Highlights",
 				Items: []session.GalleryImage{
 					{
-						Title:    "Spawn Plaza",
-						Subtitle: "Welcome hub for every visitor",
-						URI:      "https://mcxboxbroadcast.github.io/assets/gallery/spawn.png",
+						Title:    "Server Logo",
+						Subtitle: "blob",
+						URI:      "https://raw.githubusercontent.com/cjmustard/friend-connect/refs/heads/main/assets/friend-connect.png?token=GHSAT0AAAAAADKDKPL3FOS62GW5IYCGQAHC2HUTZNQ",
 					},
 				},
 			},
