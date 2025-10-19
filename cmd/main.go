@@ -21,7 +21,10 @@ func main() {
 
 	logger := log.New(os.Stdout, "", 0)
 
-	galleryImage := loadGalleryImage("assets/friend-connect.png")
+	hostName := envOrDefault("FRIENDCONNECT_HOST_NAME", "username")
+	worldName := envOrDefault("FRIENDCONNECT_WORLD_NAME", "hostname")
+
+	galleryImage := loadGalleryImage("assets/friend-connect.png", worldName, hostName)
 
 	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token}, // Xbox Live authentication tokens for connecting to Xbox services
@@ -44,15 +47,15 @@ func main() {
 			MaxMemberCount:          4,                                     // Maximum number of players allowed to join the session
 			MemberCount:             1,                                     // Current number of players currently in the session
 			WorldType:               "Survival",                            // Game mode type displayed to players (Survival, Creative, etc.)
-			WorldName:               "hostname",                            // Name of the world/server that will be displayed
-			HostName:                "username",                            // Name of the session host shown to other players
+			WorldName:               worldName,                             // Name of the world/server that will be displayed
+			HostName:                hostName,                              // Name of the session host shown to other players
 			Joinability:             room.JoinabilityJoinableByFriends,     // Access control for who can join (friends only, public, etc.)
 			BroadcastSetting:        room.BroadcastSettingFriendsOfFriends, // Visibility level determining how the session appears to others
 			LanGame:                 false,                                 // Whether this session is restricted to local network only
 			OnlineCrossPlatformGame: true,                                  // Enable cross-platform play between PC, mobile, and console
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
 			Gallery: session.GalleryOptions{
-				Title: "Highlights",
+				Title: worldName,
 				Items: []session.GalleryImage{galleryImage},
 			},
 		},
@@ -126,16 +129,23 @@ func tokenSource(tokenPath string) oauth2.TokenSource {
 	return oauth2.ReuseTokenSource(tok, src)
 }
 
-func loadGalleryImage(path string) session.GalleryImage {
+func loadGalleryImage(path, worldName, hostName string) session.GalleryImage {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("load gallery image: %v", err)
 	}
 	return session.GalleryImage{
-		Title:       "Server Logo",
-		Subtitle:    "Friend Connect",
+		Title:       worldName,
+		Subtitle:    hostName,
 		Data:        data,
 		ContentType: session.GalleryContentTypePNG,
 		ImageType:   session.GalleryImageTypeScreenshot,
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
 }
