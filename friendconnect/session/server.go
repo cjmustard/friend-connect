@@ -32,6 +32,8 @@ import (
 	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
 
+var serviceConfigUUID = uuid.MustParse(xbox.ServiceConfigID)
+
 type Server struct {
 	log      *log.Logger
 	accounts *xbox.Store
@@ -46,7 +48,7 @@ type Server struct {
 	httpClient *http.Client
 	nether     *SignalingHub
 
-	announcers map[string]*room.XBLAnnouncer
+	announcers map[string]*GalleryAnnouncer
 	sessions   map[string]*mpsd.Session
 	sessMu     sync.RWMutex
 
@@ -124,6 +126,7 @@ type ViewershipOptions struct {
 	OnlineCrossPlatformGame bool
 	// CrossPlayDisabled disables cross-play functionality between different platforms
 	CrossPlayDisabled bool
+	Gallery           GalleryOptions
 }
 
 type relayCheckState struct {
@@ -148,7 +151,7 @@ func NewServer(logger *log.Logger, accounts *xbox.Store, netherHub *SignalingHub
 		subsessions:     map[string]*ClientSession{},
 		httpClient:      httpClient,
 		nether:          netherHub,
-		announcers:      map[string]*room.XBLAnnouncer{},
+		announcers:      map[string]*GalleryAnnouncer{},
 		sessions:        map[string]*mpsd.Session{},
 		statusMeta:      map[string]*statusMetadata{},
 		startedAccounts: map[string]struct{}{},
@@ -193,7 +196,14 @@ func (m *Server) ConfigureViewership(opts ViewershipOptions) {
 	if opts.BroadcastSetting == 0 {
 		opts.BroadcastSetting = room.BroadcastSettingFriendsOfFriends
 	}
+	opts.Gallery = opts.Gallery.normalized()
 	m.viewership = opts
+
+	m.sessMu.Lock()
+	for _, ann := range m.announcers {
+		ann.setGalleryProvider(m.viewershipGallery)
+	}
+	m.sessMu.Unlock()
 }
 
 func (m *Server) Start(ctx context.Context) {
@@ -396,23 +406,24 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 	return nil
 }
 
-func (m *Server) announcerFor(acct *xbox.Account) *room.XBLAnnouncer {
+func (m *Server) announcerFor(acct *xbox.Account) *GalleryAnnouncer {
 	sessionID := acct.SessionID()
 	m.sessMu.Lock()
 	defer m.sessMu.Unlock()
 	if ann, ok := m.announcers[sessionID]; ok {
+		ann.setGalleryProvider(m.viewershipGallery)
 		return ann
 	}
-	scid := uuid.MustParse(xbox.ServiceConfigID)
-	ann := &room.XBLAnnouncer{
+	ann := &GalleryAnnouncer{
 		TokenSource: accountTokenSource{acct: acct},
 		SessionReference: mpsd.SessionReference{
-			ServiceConfigID: scid,
+			ServiceConfigID: serviceConfigUUID,
 			TemplateName:    xbox.TemplateName,
 			Name:            strings.ToUpper(sessionID),
 		},
 		PublishConfig: mpsd.PublishConfig{Client: m.httpClient},
 	}
+	ann.setGalleryProvider(m.viewershipGallery)
 	m.announcers[sessionID] = ann
 	return ann
 }
@@ -424,6 +435,10 @@ func (m *Server) storeSession(id string, sess *mpsd.Session) {
 	m.sessMu.Lock()
 	m.sessions[id] = sess
 	m.sessMu.Unlock()
+}
+
+func (m *Server) viewershipGallery() GalleryOptions {
+	return m.viewership.Gallery
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {

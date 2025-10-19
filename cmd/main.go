@@ -51,6 +51,21 @@ func main() {
 			LanGame:                 false,                                 // Whether this session is restricted to local network only
 			OnlineCrossPlatformGame: true,                                  // Enable cross-platform play between PC, mobile, and console
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
+			Gallery: session.GalleryOptions{
+				Title: "Highlights",
+				Items: []session.GalleryImage{
+					{
+						Title:    "Spawn Plaza",
+						Subtitle: "Welcome hub for every visitor",
+						URI:      "https://mcxboxbroadcast.github.io/assets/gallery/spawn.png",
+					},
+					{
+						Title:    "Market District",
+						Subtitle: "Showcase of daily events",
+						URI:      "https://mcxboxbroadcast.github.io/assets/gallery/market.png",
+					},
+				},
+			},
 		},
 		Logger: logger, // Logger instance for application logging and debugging output
 	}
