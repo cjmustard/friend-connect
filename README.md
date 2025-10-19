@@ -73,6 +73,11 @@ The service comes with sensible defaults, but you can customize it by editing `c
 			OnlineCrossPlatformGame: true,                                  // Enable cross-platform play between PC, mobile, and console
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
 		},
+		RTA: friendconnect.RTAOptions{
+			MaxRetries:   3,                // Maximum number of retry attempts for RTA connections
+			BaseTimeout:  30 * time.Second, // Base timeout duration for RTA connection attempts
+			RetryBackoff: time.Second,      // Base backoff duration between retry attempts
+		},
 		Logger: logger, // Logger instance for application logging and debugging output
 	}
 ```
@@ -81,6 +86,7 @@ The service comes with sensible defaults, but you can customize it by editing `c
 - **Remote Server**: Change `RemoteAddress` in `RelayOptions` to your target server
 - **Server Name**: Modify `Name` in `ListenerOptions` to change what friends see
 - **Friend Settings**: Adjust `AutoAccept` and `AutoAdd` in `FriendOptions`
+- **RTA Connection**: Configure `MaxRetries`, `BaseTimeout`, and `RetryBackoff` in `RTAOptions` for network stability
 
 ## How to Use
 
@@ -88,6 +94,34 @@ The service comes with sensible defaults, but you can customize it by editing `c
 2. Your friends will see your session in their Xbox Live friend list
 3. When they join, they'll be automatically connected to your configured server
 4. The service handles all the Xbox Live integration behind the scenes
+
+## Troubleshooting
+
+### RTA Connection Issues
+
+Friend Connect uses Xbox Live's Real-Time Activity (RTA) service to maintain presence and session information. Occasionally, these connections may timeout or disconnect due to network issues. The service includes robust retry logic to handle these situations automatically.
+
+**Common RTA-related log messages:**
+- `RTA connection attempt X failed for [username]: [error]` - Normal retry behavior
+- `RTA connection recovered for [username] after X attempts` - Successful recovery
+- `RTA connection issue for [username] (will retry): [error]` - Temporary issue, will retry
+
+**If you experience frequent RTA connection issues:**
+
+1. **Increase retry attempts:**
+   ```go
+   RTA: friendconnect.RTAOptions{
+       MaxRetries:   5,                // More retries for unstable connections
+       BaseTimeout:  45 * time.Second, // Longer timeout for slow networks
+       RetryBackoff: 2 * time.Second,  // Longer backoff between retries
+   },
+   ```
+
+2. **Check your network connection** - RTA connections require stable internet access
+
+3. **Verify Xbox Live service status** - Check if Xbox Live services are experiencing issues
+
+**The service will continue to function** even when RTA connections are temporarily unavailable. Your friends can still connect to the relay server, though session presence updates may be delayed until the connection is restored.
 
 ## For Developers
 

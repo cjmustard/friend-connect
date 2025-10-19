@@ -75,6 +75,11 @@ type Server struct {
 	netherProvider minecraft.ServerStatusProvider
 	netherCtx      context.Context
 	netherAccounts map[string]struct{}
+
+	// RTA connection configuration
+	rtaMaxRetries   int
+	rtaBaseTimeout  time.Duration
+	rtaRetryBackoff time.Duration
 }
 
 type Options struct {
@@ -196,6 +201,22 @@ func (m *Server) ConfigureViewership(opts ViewershipOptions) {
 	m.viewership = opts
 }
 
+// ConfigureRTA sets up the RTA connection options for Xbox Live services.
+func (m *Server) ConfigureRTA(maxRetries int, baseTimeout, retryBackoff time.Duration) {
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	if baseTimeout <= 0 {
+		baseTimeout = 30 * time.Second
+	}
+	if retryBackoff <= 0 {
+		retryBackoff = time.Second
+	}
+	m.rtaMaxRetries = maxRetries
+	m.rtaBaseTimeout = baseTimeout
+	m.rtaRetryBackoff = retryBackoff
+}
+
 func (m *Server) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -239,7 +260,12 @@ func (m *Server) startAccount(acct *xbox.Account) {
 	ctx := m.sessionContext()
 	go func() {
 		if err := m.ensureSession(ctx, acct); err != nil {
-			m.log.Printf("create session failed for %s: %v", acct.Gamertag(), err)
+			// Handle RTA connection failures more gracefully during account startup
+			if strings.Contains(err.Error(), "RTA connection") {
+				m.log.Printf("RTA connection issue during account startup for %s (will retry): %v", acct.Gamertag(), err)
+			} else {
+				m.log.Printf("create session failed for %s: %v", acct.Gamertag(), err)
+			}
 		}
 	}()
 	go m.runPresence(ctx, acct)
@@ -331,7 +357,16 @@ func (m *Server) runPresence(ctx context.Context, acct *xbox.Account) {
 
 func (m *Server) updatePresence(ctx context.Context, acct *xbox.Account) (time.Duration, error) {
 	if err := m.ensureSession(ctx, acct); err != nil {
-		m.log.Printf("ensure session failed for %s: %v", acct.Gamertag(), err)
+		// Don't log every RTA connection failure as an error - it's expected to happen occasionally
+		if strings.Contains(err.Error(), "RTA connection") {
+			m.log.Printf("RTA connection issue for %s (will retry): %v", acct.Gamertag(), err)
+		} else {
+			m.log.Printf("ensure session failed for %s: %v", acct.Gamertag(), err)
+		}
+		// Return a shorter delay for RTA connection issues to retry sooner
+		if strings.Contains(err.Error(), "RTA connection") {
+			return 30 * time.Second, nil
+		}
 	}
 	tok, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
@@ -387,7 +422,9 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 		return err
 	}
 	ann := m.announcerFor(acct)
-	if err := ann.Announce(ctx, status); err != nil {
+
+	// Add timeout and retry logic for RTA connection
+	if err := m.announceWithRetry(ctx, ann, status, acct.Gamertag()); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
 	if ann.Session != nil {
@@ -424,6 +461,63 @@ func (m *Server) storeSession(id string, sess *mpsd.Session) {
 	m.sessMu.Lock()
 	m.sessions[id] = sess
 	m.sessMu.Unlock()
+}
+
+// announceWithRetry handles RTA connection timeouts and retries with exponential backoff
+func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, status *room.Status, gamertag string) error {
+	maxRetries := m.rtaMaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	baseTimeout := m.rtaBaseTimeout
+	if baseTimeout <= 0 {
+		baseTimeout = 30 * time.Second
+	}
+	retryBackoff := m.rtaRetryBackoff
+	if retryBackoff <= 0 {
+		retryBackoff = time.Second
+	}
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Create a timeout context for this attempt
+		timeout := baseTimeout * time.Duration(1<<attempt) // Exponential backoff: 30s, 60s, 120s
+		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+
+		err := ann.Announce(attemptCtx, status)
+		cancel()
+
+		if err == nil {
+			// Success - reset any previous error logging
+			if attempt > 0 {
+				m.log.Printf("RTA connection recovered for %s after %d attempts", gamertag, attempt+1)
+			}
+			return nil
+		}
+
+		// Check if it's a context timeout or cancellation
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// Log the error with attempt information
+		m.log.Printf("RTA connection attempt %d failed for %s: %v", attempt+1, gamertag, err)
+
+		// If this is the last attempt, return the error
+		if attempt == maxRetries-1 {
+			return fmt.Errorf("RTA connection failed after %d attempts: %w", maxRetries, err)
+		}
+
+		// Wait before retrying (exponential backoff)
+		backoff := time.Duration(1<<attempt) * retryBackoff // 1s, 2s, 4s (or configured backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+			// Continue to next attempt
+		}
+	}
+
+	return errors.New("unexpected retry loop exit")
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
@@ -535,7 +629,12 @@ func (m *Server) refreshSessions(ctx context.Context) {
 		case <-ticker.C:
 			m.accounts.WithAccounts(func(acct *xbox.Account) {
 				if err := m.ensureSession(ctx, acct); err != nil {
-					m.log.Printf("refresh session failed for %s: %v", acct.Gamertag(), err)
+					// Handle RTA connection failures more gracefully
+					if strings.Contains(err.Error(), "RTA connection") {
+						m.log.Printf("RTA connection issue during refresh for %s (will retry): %v", acct.Gamertag(), err)
+					} else {
+						m.log.Printf("refresh session failed for %s: %v", acct.Gamertag(), err)
+					}
 				}
 			})
 		}
@@ -597,7 +696,12 @@ func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
 
 	go m.accounts.WithAccounts(func(acct *xbox.Account) {
 		if err := m.ensureSession(context.Background(), acct); err != nil {
-			m.log.Printf("update session failed for %s: %v", acct.Gamertag(), err)
+			// Handle RTA connection failures more gracefully during initial setup
+			if strings.Contains(err.Error(), "RTA connection") {
+				m.log.Printf("RTA connection issue during initial setup for %s (will retry): %v", acct.Gamertag(), err)
+			} else {
+				m.log.Printf("update session failed for %s: %v", acct.Gamertag(), err)
+			}
 		}
 	})
 }

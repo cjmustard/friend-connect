@@ -52,6 +52,11 @@ func main() {
 			OnlineCrossPlatformGame: true,                                  // Enable cross-platform play between PC, mobile, and console
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
 		},
+		RTA: friendconnect.RTAOptions{
+			MaxRetries:   3,                // Maximum number of retry attempts for RTA connections
+			BaseTimeout:  30 * time.Second, // Base timeout duration for RTA connection attempts
+			RetryBackoff: time.Second,      // Base backoff duration between retry attempts
+		},
 		Logger: logger, // Logger instance for application logging and debugging output
 	}
 

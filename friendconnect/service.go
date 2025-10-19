@@ -21,8 +21,8 @@ type Service struct {
 	opts     Options
 	log      *log.Logger
 	accounts *xbox.Store
-	fhandler  *friends.Handler
-	server *session.Server
+	fhandler *friends.Handler
+	server   *session.Server
 	nether   *session.SignalingHub
 
 	started bool
@@ -63,13 +63,14 @@ func NewWithOptions(opts Options) (*Service, error) {
 		Timeout:       opts.Relay.Timeout,
 	})
 	server.ConfigureViewership(opts.Viewership)
+	server.ConfigureRTA(opts.RTA.MaxRetries, opts.RTA.BaseTimeout, opts.RTA.RetryBackoff)
 
 	srv := &Service{
 		opts:     opts,
 		log:      loggr,
 		accounts: acctStore,
-		fhandler:  handler,
-		server: server,
+		fhandler: handler,
+		server:   server,
 		nether:   netherHub,
 	}
 
@@ -105,6 +106,11 @@ func New(domain string, tokens ...*oauth2.Token) (*Service, error) {
 			LanGame:                 false,
 			OnlineCrossPlatformGame: true,
 			CrossPlayDisabled:       false,
+		},
+		RTA: RTAOptions{
+			MaxRetries:   3,
+			BaseTimeout:  30 * time.Second,
+			RetryBackoff: time.Second,
 		},
 		Logger: nil,
 	}
