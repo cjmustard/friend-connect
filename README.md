@@ -52,7 +52,7 @@ The service comes with sensible defaults, but you can customize it by editing `c
 			SyncTicker: 10 * time.Second, // Interval for synchronizing friend list with Xbox Live services
 		},
 		Listener: friendconnect.ListenerOptions{
-			Address: "0.0.0.0:19132",            // Network address and port where the local server will listen for connections
+			Address: "0.0.0.0:19133",            // Network address and port where the local server will listen for connections, assign to any un-used port
 			Name:    "Friend Connect",           // Server name displayed in Minecraft's server browser and friend lists
 			Message: "Minecraft Presence Relay", // Server description shown to players when connecting
 		},
