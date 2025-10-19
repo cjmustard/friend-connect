@@ -39,7 +39,7 @@ type Request struct {
 	Gamertag string
 }
 
-type Manager struct {
+type Handler struct {
 	log      *log.Logger
 	accounts *xbox.Store
 	provider Provider
@@ -48,21 +48,21 @@ type Manager struct {
 	opts     Options
 }
 
-func NewManager(log *log.Logger, accounts *xbox.Store, provider Provider) *Manager {
+func NewHandler(log *log.Logger, accounts *xbox.Store, provider Provider) *Handler {
 	if provider == nil {
 		provider = NewXboxProvider(nil)
 	}
-	return &Manager{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}}
+	return &Handler{log: log, accounts: accounts, provider: provider, friends: map[string][]Friend{}}
 }
 
-func (m *Manager) Configure(opts Options) {
+func (m *Handler) Configure(opts Options) {
 	if opts.SyncEvery <= 0 {
 		opts.SyncEvery = time.Minute
 	}
 	m.opts = opts
 }
 
-func (m *Manager) Run(ctx context.Context) {
+func (m *Handler) Run(ctx context.Context) {
 	if m.opts.SyncEvery <= 0 {
 		m.opts.SyncEvery = time.Minute
 	}
@@ -82,7 +82,7 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-func (m *Manager) syncAndProcess(ctx context.Context) {
+func (m *Handler) syncAndProcess(ctx context.Context) {
 	if err := m.Sync(ctx); err != nil {
 		m.log.Printf("friend sync failed: %v (auto_add=%v auto_accept=%v)", err, m.opts.AutoAdd, m.opts.AutoAccept)
 		return
@@ -99,7 +99,7 @@ func (m *Manager) syncAndProcess(ctx context.Context) {
 	}
 }
 
-func (m *Manager) Sync(ctx context.Context) error {
+func (m *Handler) Sync(ctx context.Context) error {
 	var wg sync.WaitGroup
 	var firstErr error
 	var once sync.Once
@@ -129,7 +129,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 	return firstErr
 }
 
-func (m *Manager) autoFollowBack(ctx context.Context) {
+func (m *Handler) autoFollowBack(ctx context.Context) {
 	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		tag := acct.Gamertag()
 		friends := m.Friends(tag)
@@ -154,7 +154,7 @@ func (m *Manager) autoFollowBack(ctx context.Context) {
 	})
 }
 
-func (m *Manager) acceptPending(ctx context.Context) {
+func (m *Handler) acceptPending(ctx context.Context) {
 	m.accounts.WithAccounts(func(acct *xbox.Account) {
 		tag := acct.Gamertag()
 		requests, err := m.provider.PendingRequests(ctx, acct)
@@ -192,7 +192,7 @@ func (m *Manager) acceptPending(ctx context.Context) {
 	})
 }
 
-func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
+func (m *Handler) AutoAdd(ctx context.Context, gamertag string) error {
 	if gamertag == "" {
 		return errors.New("missing gamertag")
 	}
@@ -214,7 +214,7 @@ func (m *Manager) AutoAdd(ctx context.Context, gamertag string) error {
 	return nil
 }
 
-func (m *Manager) Friends(gamertag string) []Friend {
+func (m *Handler) Friends(gamertag string) []Friend {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	friends := m.friends[gamertag]
@@ -227,7 +227,7 @@ func copySlice(dst, src []Friend) {
 	copy(dst, src)
 }
 
-func (m *Manager) logSyncSummary() {
+func (m *Handler) logSyncSummary() {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

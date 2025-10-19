@@ -21,8 +21,8 @@ type Service struct {
 	opts     Options
 	log      *log.Logger
 	accounts *xbox.Store
-	friends  *friends.Manager
-	sessions *session.Server
+	fhandler  *friends.Handler
+	server *session.Server
 	nether   *session.SignalingHub
 
 	started bool
@@ -47,8 +47,8 @@ func NewWithOptions(opts Options) (*Service, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	provider := friends.NewXboxProvider(httpClient)
-	friendMgr := friends.NewManager(loggr, acctStore, provider)
-	friendMgr.Configure(friends.Options{
+	handler := friends.NewHandler(loggr, acctStore, provider)
+	handler.Configure(friends.Options{
 		AutoAccept: opts.Friends.AutoAccept,
 		AutoAdd:    opts.Friends.AutoAdd,
 		SyncEvery:  opts.Friends.SyncTicker,
@@ -56,20 +56,20 @@ func NewWithOptions(opts Options) (*Service, error) {
 
 	netherHub := session.NewSignalingHub(loggr, acctStore)
 
-	sessionMgr := session.NewServer(loggr, acctStore, netherHub, httpClient)
-	sessionMgr.ConfigureRelay(session.RelayOptions{
+	server := session.NewServer(loggr, acctStore, netherHub, httpClient)
+	server.ConfigureRelay(session.RelayOptions{
 		RemoteAddress: opts.Relay.RemoteAddress,
 		VerifyTarget:  opts.Relay.VerifyTarget,
 		Timeout:       opts.Relay.Timeout,
 	})
-	sessionMgr.ConfigureViewership(opts.Viewership)
+	server.ConfigureViewership(opts.Viewership)
 
 	srv := &Service{
 		opts:     opts,
 		log:      loggr,
 		accounts: acctStore,
-		friends:  friendMgr,
-		sessions: sessionMgr,
+		fhandler:  handler,
+		server: server,
 		nether:   netherHub,
 	}
 
@@ -134,9 +134,9 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	s.nether.Start(ctx)
-	s.sessions.Start(ctx)
+	s.server.Start(ctx)
 
-	go s.friends.Run(ctx)
+	go s.fhandler.Run(ctx)
 
-	return s.sessions.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
+	return s.server.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
 }
