@@ -3,6 +3,8 @@ package session
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 )
 
@@ -91,4 +93,21 @@ type galleryItemPayload struct {
 	ImageType   string `json:"imageType"`
 	ContentType string `json:"contentType"`
 	URI         string `json:"uri"`
+}
+
+// LoadGalleryImage loads an image file from the filesystem and creates a GalleryImage.
+// This is a public utility function that can be used by other packages to create
+// gallery images from local files.
+func LoadGalleryImage(path, worldName, hostName string) GalleryImage {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalf("load gallery image: %v", err)
+	}
+	return GalleryImage{
+		Title:       worldName,
+		Subtitle:    hostName,
+		Data:        data,
+		ContentType: GalleryContentTypeJPEG,
+		ImageType:   GalleryImageTypeScreenshot,
+	}
 }

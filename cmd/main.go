@@ -24,7 +24,7 @@ func main() {
 	hostName := "username"
 	worldName := "hostname"
 
-	galleryImage := loadGalleryImage("../assets/screenshot.jpg", worldName, hostName)
+	galleryImage := session.LoadGalleryImage("../assets/screenshot.jpg", worldName, hostName)
 
 	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token}, // Xbox Live authentication tokens for connecting to Xbox services
@@ -55,8 +55,8 @@ func main() {
 			OnlineCrossPlatformGame: true,                                  // Enable cross-platform play between PC, mobile, and console
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
 			Gallery: session.GalleryOptions{
-				Title: worldName,
-				Items: []session.GalleryImage{galleryImage},
+				Title: worldName,                            // Gallery title displayed in Xbox Live session browser
+				Items: []session.GalleryImage{galleryImage}, // Collection of images/screenshots shown to friends when browsing sessions
 			},
 		},
 		Logger: logger, // Logger instance for application logging and debugging output
@@ -127,18 +127,4 @@ func tokenSource(tokenPath string) oauth2.TokenSource {
 	}
 
 	return oauth2.ReuseTokenSource(tok, src)
-}
-
-func loadGalleryImage(path, worldName, hostName string) session.GalleryImage {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		log.Fatalf("load gallery image: %v", err)
-	}
-	return session.GalleryImage{
-		Title:       worldName,
-		Subtitle:    hostName,
-		Data:        data,
-		ContentType: session.GalleryContentTypeJPEG,
-		ImageType:   session.GalleryImageTypeScreenshot,
-	}
 }
