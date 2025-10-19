@@ -36,7 +36,7 @@ On first run, the service will:
 1. Open your browser for Xbox Live authentication
 2. Ask you to enter a code from the Xbox Live website
 3. Save your authentication token in `assets/token.tok`
-4. Start the local server on `0.0.0.0:19132`
+4. Start the local server on `0.0.0.0:19133`
 5. Relay connections to the configured remote server
 
 ### Configuration

@@ -89,7 +89,11 @@ func (n *notifier) NotifyError(err error) {
 	if err != nil && !errors.Is(err, nethernet.ErrSignalingStopped) && n.log != nil {
 		n.log.Printf("nethernet signaling error: %s - %v", n.tag, err)
 	}
-	n.once.Do(func() { close(n.done) })
+	n.once.Do(func() {
+		if n.done != nil {
+			close(n.done)
+		}
+	})
 }
 
 func NewSignalingHub(logger *log.Logger, accounts *xbox.Store) *SignalingHub {
@@ -292,16 +296,26 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 		sess.setSignaling(conn, done)
 		sess.readyOnce.Do(func() { close(sess.ready) })
 
-		stop := conn.Notify(&notifier{done: done, log: m.log, tag: acct.Gamertag(), sess: sess})
+		notifier := &notifier{
+			done: done,
+			log:  m.log,
+			tag:  acct.Gamertag(),
+			sess: sess,
+		}
+		stop := conn.Notify(notifier)
 
 		select {
 		case <-ctx.Done():
 			stop()
+			// Give the connection time to clean up gracefully
+			time.Sleep(100 * time.Millisecond)
 			_ = conn.Close()
 			sess.setSignaling(nil, nil)
 			return
 		case <-done:
 			stop()
+			// Give the connection time to clean up gracefully
+			time.Sleep(100 * time.Millisecond)
 			_ = conn.Close()
 			sess.setSignaling(nil, nil)
 			if ctx.Err() != nil {
