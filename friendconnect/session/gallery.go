@@ -9,6 +9,7 @@ import (
 const (
 	GalleryImageTypeScreenshot = "Screenshot"
 	GalleryContentTypePNG      = "image/png"
+	GalleryContentTypeJPEG     = "image/jpeg"
 )
 
 type GalleryOptions struct {

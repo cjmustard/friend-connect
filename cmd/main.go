@@ -21,10 +21,10 @@ func main() {
 
 	logger := log.New(os.Stdout, "", 0)
 
-	hostName := envOrDefault("FRIENDCONNECT_HOST_NAME", "username")
-	worldName := envOrDefault("FRIENDCONNECT_WORLD_NAME", "hostname")
+	hostName := "username"
+	worldName := "hostname"
 
-	galleryImage := loadGalleryImage("assets/friend-connect.png", worldName, hostName)
+	galleryImage := loadGalleryImage("../assets/screenshot.jpg", worldName, hostName)
 
 	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token}, // Xbox Live authentication tokens for connecting to Xbox services
@@ -138,14 +138,7 @@ func loadGalleryImage(path, worldName, hostName string) session.GalleryImage {
 		Title:       worldName,
 		Subtitle:    hostName,
 		Data:        data,
-		ContentType: session.GalleryContentTypePNG,
+		ContentType: session.GalleryContentTypeJPEG,
 		ImageType:   session.GalleryImageTypeScreenshot,
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return fallback
 }
