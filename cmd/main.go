@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,16 +23,28 @@ func main() {
 	logger := log.New(os.Stdout, "", 0)
 
 	hostName := "username"
-	worldName := "hostname"
+	worldName := fmt.Sprintf("hostname-%d", time.Now().Unix())
 
-	galleryImage := session.LoadGalleryImage("../assets/screenshot.jpg", worldName, hostName)
+	galleryImage, err := session.LoadGalleryImageWithValidation("../assets/screenshot.jpg", worldName, hostName)
+	if err != nil {
+		log.Printf("warning: failed to load gallery image: %v", err)
+		// Create a minimal gallery image as fallback
+		galleryImage = session.GalleryImage{
+			Title:       worldName,
+			Subtitle:    hostName,
+			ContentType: session.GalleryContentTypeJPEG,
+			ImageType:   session.GalleryImageTypeScreenshot,
+		}
+	} else {
+		log.Printf("successfully loaded gallery image: %d bytes, title: %s", len(galleryImage.Data), galleryImage.Title)
+	}
 
 	opts := friendconnect.Options{
 		Tokens: []*oauth2.Token{token}, // Xbox Live authentication tokens for connecting to Xbox services
 		Friends: friendconnect.FriendOptions{
 			AutoAccept: true,             // Automatically accept incoming friend requests without manual approval
 			AutoAdd:    true,             // Automatically add accepted friends to the current session
-			SyncTicker: 10 * time.Second, // Interval for synchronizing friend list with Xbox Live services (XBL API rate limit is 30/min)
+			SyncTicker: 30 * time.Second, // Interval for synchronizing friend list with Xbox Live services (XBL API rate limit is 30req/300s)
 		},
 		Listener: friendconnect.ListenerOptions{
 			Address: "0.0.0.0:19132",            // Network address and port where the local server will listen for connections

@@ -40,7 +40,12 @@ func (a *GalleryAnnouncer) Announce(ctx context.Context, status room.Status) err
 	if a.gallery != nil {
 		if gallery := a.gallery().payload(); gallery != nil {
 			payload.Gallery = gallery
+			fmt.Printf("gallery: announcing session with %d gallery items\n", len(gallery.Items))
+		} else {
+			fmt.Printf("gallery: no gallery payload generated\n")
 		}
+	} else {
+		fmt.Printf("gallery: no gallery provider set\n")
 	}
 
 	custom, err := json.Marshal(payload)
@@ -48,9 +53,18 @@ func (a *GalleryAnnouncer) Announce(ctx context.Context, status room.Status) err
 		return fmt.Errorf("encode: %w", err)
 	}
 	if bytes.Equal(custom, a.custom) {
+		fmt.Printf("gallery: session data unchanged, skipping update\n")
 		return nil
 	}
 	a.custom = custom
+
+	// Log the first 200 characters of the custom data to see what's being sent
+	customStr := string(custom)
+	if len(customStr) > 200 {
+		fmt.Printf("gallery: sending session data (first 200 chars): %s...\n", customStr[:200])
+	} else {
+		fmt.Printf("gallery: sending session data: %s\n", customStr)
+	}
 
 	if a.Session == nil {
 		if a.PublishConfig.Description == nil {
@@ -75,12 +89,19 @@ func (a *GalleryAnnouncer) Announce(ctx context.Context, status room.Status) err
 
 		a.Session, err = a.PublishConfig.PublishContext(ctx, a.TokenSource, a.SessionReference)
 		if err != nil {
+			fmt.Printf("gallery: failed to publish session: %v\n", err)
 			return fmt.Errorf("publish: %w", err)
 		}
+		fmt.Printf("gallery: session published successfully\n")
 		return nil
 	}
 
 	_, err = a.Session.Commit(ctx, a.description(status, custom))
+	if err != nil {
+		fmt.Printf("gallery: failed to commit session update: %v\n", err)
+	} else {
+		fmt.Printf("gallery: session updated successfully\n")
+	}
 	return err
 }
 

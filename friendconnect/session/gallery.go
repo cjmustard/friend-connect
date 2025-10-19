@@ -42,16 +42,23 @@ func (o GalleryOptions) normalized() GalleryOptions {
 
 func (o GalleryOptions) payload() *galleryPayload {
 	items := make([]galleryItemPayload, 0, len(o.Items))
-	for _, item := range o.Items {
+	for i, item := range o.Items {
 		payload := item.payload()
 		if payload.URI == "" {
+			log.Printf("gallery: skipping item %d - no URI generated", i)
 			continue
+		}
+		// Log URI length for debugging (data URIs can be very long)
+		if len(payload.URI) > 1000 {
+			log.Printf("gallery: item %d URI length: %d characters", i, len(payload.URI))
 		}
 		items = append(items, payload)
 	}
 	if len(items) == 0 {
+		log.Printf("gallery: no valid items found in gallery")
 		return nil
 	}
+	log.Printf("gallery: created payload with %d items", len(items))
 	return &galleryPayload{Title: o.Title, Items: items}
 }
 
@@ -110,4 +117,32 @@ func LoadGalleryImage(path, worldName, hostName string) GalleryImage {
 		ContentType: GalleryContentTypeJPEG,
 		ImageType:   GalleryImageTypeScreenshot,
 	}
+}
+
+// LoadGalleryImageWithValidation loads an image file and validates it before creating a GalleryImage.
+// This version includes additional validation to ensure the image data is valid and not too large.
+func LoadGalleryImageWithValidation(path, worldName, hostName string) (GalleryImage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return GalleryImage{}, fmt.Errorf("read image file: %w", err)
+	}
+
+	// Validate image size (limit to 1MB to avoid Xbox Live service issues)
+	const maxImageSize = 1024 * 1024 // 1MB
+	if len(data) > maxImageSize {
+		return GalleryImage{}, fmt.Errorf("image too large: %d bytes (max %d bytes)", len(data), maxImageSize)
+	}
+
+	// Validate that we have actual data
+	if len(data) == 0 {
+		return GalleryImage{}, fmt.Errorf("empty image file")
+	}
+
+	return GalleryImage{
+		Title:       worldName,
+		Subtitle:    hostName,
+		Data:        data,
+		ContentType: GalleryContentTypeJPEG,
+		ImageType:   GalleryImageTypeScreenshot,
+	}, nil
 }
