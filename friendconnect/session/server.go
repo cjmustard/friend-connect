@@ -423,8 +423,7 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 	}
 	ann := m.announcerFor(acct)
 
-	// Add timeout and retry logic for RTA connection
-	if err := m.announceWithRetry(ctx, ann, status, acct.Gamertag()); err != nil {
+	if err := m.announceWithRetry(ctx, ann, &status, acct.Gamertag()); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
 	if ann.Session != nil {
@@ -483,7 +482,7 @@ func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, 
 		timeout := baseTimeout * time.Duration(1<<attempt) // Exponential backoff: 30s, 60s, 120s
 		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 
-		err := ann.Announce(attemptCtx, status)
+		err := ann.Announce(attemptCtx, *status)
 		cancel()
 
 		if err == nil {
