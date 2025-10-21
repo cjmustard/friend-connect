@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -421,12 +422,10 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 	if err != nil {
 		return err
 	}
-	ann := m.announcerFor(acct)
-
-	if err := m.announceWithRetry(ctx, ann, &status, acct.Gamertag()); err != nil {
+	if err := m.announceWithRetry(ctx, &status, acct); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
-	if ann.Session != nil {
+	if ann := m.announcerFor(acct); ann.Session != nil {
 		m.storeSession(acct.SessionID(), ann.Session)
 	}
 	return nil
@@ -463,7 +462,7 @@ func (m *Server) storeSession(id string, sess *mpsd.Session) {
 }
 
 // announceWithRetry handles RTA connection timeouts and retries with exponential backoff
-func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, status *room.Status, gamertag string) error {
+func (m *Server) announceWithRetry(ctx context.Context, status *room.Status, acct *xbox.Account) error {
 	maxRetries := m.rtaMaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 3
@@ -477,12 +476,18 @@ func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, 
 		retryBackoff = time.Second
 	}
 
+	if acct == nil {
+		return errors.New("nil account for announce")
+	}
+	gamertag := acct.Gamertag()
+
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		ann := m.announcerFor(acct)
 		// Create a timeout context for this attempt
 		timeout := baseTimeout * time.Duration(1<<attempt) // Exponential backoff: 30s, 60s, 120s
 		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 
-		err := ann.Announce(attemptCtx, *status)
+		err := m.safeAnnounce(attemptCtx, ann, status, acct)
 		cancel()
 
 		if err == nil {
@@ -496,6 +501,10 @@ func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, 
 		// Check if it's a context timeout or cancellation
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+
+		if m.isConnClosedErr(err) {
+			m.resetAnnouncer(acct)
 		}
 
 		// Log the error with attempt information
@@ -517,6 +526,74 @@ func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, 
 	}
 
 	return errors.New("unexpected retry loop exit")
+}
+
+func (m *Server) safeAnnounce(ctx context.Context, ann *room.XBLAnnouncer, status *room.Status, acct *xbox.Account) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			gamertag := ""
+			if acct != nil {
+				gamertag = acct.Gamertag()
+			}
+			m.log.Printf("panic during RTA announce for %s: %v", gamertag, r)
+			if stack := debug.Stack(); len(stack) > 0 {
+				m.log.Printf("panic stack trace: %s", stack)
+			}
+			m.resetAnnouncer(acct)
+			err = fmt.Errorf("announce panic: %v", r)
+		}
+	}()
+	if ann == nil || status == nil {
+		return fmt.Errorf("missing announcer or status")
+	}
+	return ann.Announce(ctx, *status)
+}
+
+func (m *Server) isConnClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "use of closed network connection"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "connection closed"),
+		strings.Contains(msg, "close of nil channel"):
+		return true
+	}
+	return false
+}
+
+func (m *Server) resetAnnouncer(acct *xbox.Account) {
+	if acct == nil {
+		return
+	}
+	sessionID := acct.SessionID()
+
+	var ann *room.XBLAnnouncer
+	m.sessMu.Lock()
+	if existing, ok := m.announcers[sessionID]; ok {
+		ann = existing
+		delete(m.announcers, sessionID)
+	}
+	delete(m.sessions, sessionID)
+	m.sessMu.Unlock()
+
+	if ann != nil && ann.Session != nil {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					m.log.Printf("panic closing session for %s: %v", acct.Gamertag(), r)
+				}
+			}()
+			if err := ann.Session.Close(); err != nil {
+				m.log.Printf("error closing session for %s: %v", acct.Gamertag(), err)
+			}
+		}()
+	}
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
