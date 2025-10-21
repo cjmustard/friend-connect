@@ -37,44 +37,30 @@ type Server struct {
 	accounts *xbox.Store
 	listener *minecraft.Listener
 
-	conns  map[string]*minecraft.Conn
-	connMu sync.RWMutex
+	conns           map[string]*minecraft.Conn
+	subsessions     map[string]*ClientSession
+	announcers      map[string]*room.XBLAnnouncer
+	sessions        map[string]*mpsd.Session
+	statusMeta      map[string]*statusMetadata
+	startedAccounts map[string]struct{}
+	netherAccounts  map[string]struct{}
 
-	subsessions map[string]*ClientSession
-	subsMu      sync.RWMutex
+	httpClient     *http.Client
+	nether         *SignalingHub
+	netherProvider minecraft.ServerStatusProvider
 
-	httpClient *http.Client
-	nether     *SignalingHub
-
-	announcers map[string]*room.XBLAnnouncer
-	sessions   map[string]*mpsd.Session
-	sessMu     sync.RWMutex
-
-	listenMu   sync.RWMutex
 	listenPort uint16
 	listenGUID string
+	netherCtx  context.Context
 
-	statusMeta map[string]*statusMetadata
-	metaMu     sync.Mutex
-
-	relay RelayOptions
-
+	relay      RelayOptions
 	viewership ViewershipOptions
-
 	relayCheck relayCheckState
 
 	entityIDs atomic.Uint64
+	ctx       context.Context
 
-	ctx   context.Context
-	ctxMu sync.RWMutex
-
-	startedMu       sync.Mutex
-	startedAccounts map[string]struct{}
-
-	netherMu       sync.RWMutex
-	netherProvider minecraft.ServerStatusProvider
-	netherCtx      context.Context
-	netherAccounts map[string]struct{}
+	mu sync.RWMutex
 }
 
 type Options struct {
@@ -208,15 +194,15 @@ func (m *Server) Start(ctx context.Context) {
 }
 
 func (m *Server) setContext(ctx context.Context) {
-	m.ctxMu.Lock()
+	m.mu.Lock()
 	m.ctx = ctx
-	m.ctxMu.Unlock()
+	m.mu.Unlock()
 }
 
 func (m *Server) sessionContext() context.Context {
-	m.ctxMu.RLock()
+	m.mu.RLock()
 	ctx := m.ctx
-	m.ctxMu.RUnlock()
+	m.mu.RUnlock()
 	if ctx == nil {
 		return context.Background()
 	}
@@ -228,13 +214,13 @@ func (m *Server) startAccount(acct *xbox.Account) {
 		return
 	}
 	id := acct.SessionID()
-	m.startedMu.Lock()
+	m.mu.Lock()
 	if _, ok := m.startedAccounts[id]; ok {
-		m.startedMu.Unlock()
+		m.mu.Unlock()
 		return
 	}
 	m.startedAccounts[id] = struct{}{}
-	m.startedMu.Unlock()
+	m.mu.Unlock()
 
 	ctx := m.sessionContext()
 	go func() {
@@ -263,17 +249,17 @@ func (m *Server) AttachAccount(ctx context.Context, acct *xbox.Account) {
 }
 
 func (m *Server) setNetherRuntime(ctx context.Context, provider minecraft.ServerStatusProvider) {
-	m.netherMu.Lock()
+	m.mu.Lock()
 	m.netherCtx = ctx
 	m.netherProvider = provider
-	m.netherMu.Unlock()
+	m.mu.Unlock()
 }
 
 func (m *Server) netherRuntime() (minecraft.ServerStatusProvider, context.Context) {
-	m.netherMu.RLock()
+	m.mu.RLock()
 	provider := m.netherProvider
 	ctx := m.netherCtx
-	m.netherMu.RUnlock()
+	m.mu.RUnlock()
 	return provider, ctx
 }
 
@@ -285,13 +271,13 @@ func (m *Server) startNetherForAccount(ctx context.Context, provider minecraft.S
 		ctx = m.sessionContext()
 	}
 	id := acct.SessionID()
-	m.netherMu.Lock()
+	m.mu.Lock()
 	if _, ok := m.netherAccounts[id]; ok {
-		m.netherMu.Unlock()
+		m.mu.Unlock()
 		return
 	}
 	m.netherAccounts[id] = struct{}{}
-	m.netherMu.Unlock()
+	m.mu.Unlock()
 	go m.listenNetherForAccount(ctx, provider, acct)
 }
 
@@ -376,8 +362,18 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 		return err
 	}
 	ann := m.announcerFor(acct)
+	if ann == nil {
+		return fmt.Errorf("failed to create announcer for %s", acct.Gamertag())
+	}
 
-	if err := ann.Announce(ctx, status); err != nil {
+	if err := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("announcer panic: %v", r)
+			}
+		}()
+		return ann.Announce(ctx, status)
+	}(); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
 	if ann.Session != nil {
@@ -388,9 +384,9 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 
 func (m *Server) announcerFor(acct *xbox.Account) *room.XBLAnnouncer {
 	sessionID := acct.SessionID()
-	m.sessMu.Lock()
-	defer m.sessMu.Unlock()
-	if ann, ok := m.announcers[sessionID]; ok {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ann, ok := m.announcers[sessionID]; ok && ann != nil {
 		return ann
 	}
 	scid := uuid.MustParse(xbox.ServiceConfigID)
@@ -411,9 +407,53 @@ func (m *Server) storeSession(id string, sess *mpsd.Session) {
 	if sess == nil || id == "" {
 		return
 	}
-	m.sessMu.Lock()
+	m.mu.Lock()
 	m.sessions[id] = sess
-	m.sessMu.Unlock()
+	m.mu.Unlock()
+}
+
+func (m *Server) cleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ann := range m.announcers {
+		if ann != nil {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						m.log.Printf("warning: announcer cleanup panic: %v", r)
+					}
+				}()
+				ann.Close()
+			}()
+		}
+	}
+	m.announcers = map[string]*room.XBLAnnouncer{}
+}
+
+func (m *Server) Reset() {
+	m.log.Printf("resetting server state...")
+	m.cleanup()
+
+	m.mu.Lock()
+	for _, conn := range m.conns {
+		if conn != nil {
+			conn.Close()
+		}
+	}
+	m.conns = map[string]*minecraft.Conn{}
+
+	for _, sess := range m.subsessions {
+		if sess != nil && sess.Conn != nil {
+			sess.Conn.Close()
+		}
+	}
+	m.subsessions = map[string]*ClientSession{}
+	m.sessions = map[string]*mpsd.Session{}
+	m.startedAccounts = map[string]struct{}{}
+	m.netherAccounts = map[string]struct{}{}
+	m.mu.Unlock()
+
+	m.log.Printf("server state reset complete")
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
@@ -490,15 +530,15 @@ func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.
 }
 
 func (m *Server) listenerInfo() (uint16, string) {
-	m.listenMu.RLock()
-	defer m.listenMu.RUnlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.listenPort, m.listenGUID
 }
 
 func (m *Server) metadataFor(acct *xbox.Account) *statusMetadata {
 	id := acct.SessionID()
-	m.metaMu.Lock()
-	defer m.metaMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	meta, ok := m.statusMeta[id]
 	if !ok {
 		meta = &statusMetadata{levelID: randomLevelID()}
@@ -532,7 +572,6 @@ func (m *Server) refreshSessions(ctx context.Context) {
 	}
 }
 
-// Listen starts the server and begins accepting client connections.
 func (m *Server) Listen(ctx context.Context, opts Options) error {
 	if opts.Provider == nil {
 		opts.Provider = minecraft.NewStatusProvider("Broadcaster", "Minecraft Presence Relay")
@@ -592,10 +631,10 @@ func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
 	if guid == "" {
 		guid = strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
-	m.listenMu.Lock()
+	m.mu.Lock()
 	m.listenPort = port
 	m.listenGUID = guid
-	m.listenMu.Unlock()
+	m.mu.Unlock()
 
 	go m.accounts.WithAccounts(func(acct *xbox.Account) {
 		if err := m.ensureSession(context.Background(), acct); err != nil {
@@ -707,9 +746,9 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 
 func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 	addr := conn.RemoteAddr().String()
-	m.connMu.Lock()
+	m.mu.Lock()
 	m.conns[addr] = conn
-	m.connMu.Unlock()
+	m.mu.Unlock()
 	defer m.CloseClient(addr)
 
 	requireFlag := m.relay.RemoteAddress != "" && m.nether != nil
@@ -869,30 +908,27 @@ func (m *Server) handlePackets(header packet.Header, payload []byte, src net.Add
 }
 
 func (m *Server) lookupClient(addr string) *ClientSession {
-	m.subsMu.RLock()
-	defer m.subsMu.RUnlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.subsessions[addr]
 }
 
 func (m *Server) trackClient(addr string, acct *xbox.Account, conn *minecraft.Conn) *ClientSession {
 	subs := &ClientSession{Account: acct, Conn: conn, LastPing: time.Now(), Metadata: map[string]any{}}
-	m.subsMu.Lock()
+	m.mu.Lock()
 	m.subsessions[addr] = subs
-	m.subsMu.Unlock()
+	m.mu.Unlock()
 	return subs
 }
 
 func (m *Server) CloseClient(addr string) {
-	m.connMu.Lock()
+	m.mu.Lock()
 	if conn, ok := m.conns[addr]; ok {
 		conn.Close()
 		delete(m.conns, addr)
 	}
-	m.connMu.Unlock()
-
-	m.subsMu.Lock()
 	delete(m.subsessions, addr)
-	m.subsMu.Unlock()
+	m.mu.Unlock()
 }
 
 func (m *Server) transferClient(ctx context.Context, conn *minecraft.Conn) error {

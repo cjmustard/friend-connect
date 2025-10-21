@@ -132,5 +132,52 @@ func (s *Service) Run(ctx context.Context) error {
 
 	go s.fhandler.Run(ctx)
 
-	return s.server.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
+	return s.runWithRestart(ctx, listenerProvider)
+}
+
+func (s *Service) runWithRestart(ctx context.Context, listenerProvider minecraft.ServerStatusProvider) error {
+	restartDelay := time.Second
+	maxRestartDelay := 30 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		err := s.server.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
+		if err == nil || ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		s.log.Printf("server stopped with error: %v, restarting in %v", err, restartDelay)
+		s.reinitializeComponents(ctx)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(restartDelay):
+			restartDelay *= 2
+			if restartDelay > maxRestartDelay {
+				restartDelay = maxRestartDelay
+			}
+		}
+	}
+}
+
+func (s *Service) reinitializeComponents(ctx context.Context) {
+	s.log.Printf("reinitializing service components...")
+	if s.server != nil {
+		s.server.Reset()
+	}
+	if s.nether != nil {
+		s.nether.Reset()
+		s.nether.Start(ctx)
+	}
+	if s.server != nil {
+		s.server.Start(ctx)
+	}
+	go s.fhandler.Run(ctx)
+	s.log.Printf("service components reinitialized")
 }

@@ -120,6 +120,19 @@ func (h *SignalingHub) Start(ctx context.Context) {
 	})
 }
 
+func (h *SignalingHub) Reset() {
+	h.log.Printf("resetting signaling hub state...")
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, sess := range h.sessions {
+		if sess != nil {
+			sess.setSignaling(nil, nil)
+		}
+	}
+	h.sessions = map[string]*SignalingSession{}
+	h.log.Printf("signaling hub state reset complete")
+}
+
 func (h *SignalingHub) AttachAccount(acct *xbox.Account) {
 	if acct == nil {
 		return
