@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -25,12 +24,11 @@ type Service struct {
 	server   *session.Server
 	nether   *session.SignalingHub
 
-	started bool
-	mu      sync.RWMutex
+	started int32
 }
 
 // NewWithOptions creates a new FriendConnect service with the provided options.
-func NewWithOptions(opts Options) (*Service, error) {
+func NewWithOptions(ctx context.Context, opts Options) (*Service, error) {
 	opts.ApplyDefaults()
 
 	loggr := opts.Logger
@@ -39,12 +37,12 @@ func NewWithOptions(opts Options) (*Service, error) {
 	}
 	acctStore := xbox.NewStore()
 	for _, tok := range opts.Tokens {
-		if _, err := acctStore.Register(context.Background(), tok); err != nil {
+		if _, err := acctStore.Register(ctx, tok); err != nil {
 			return nil, fmt.Errorf("register account: %w", err)
 		}
 	}
 
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := opts.HTTPClient
 
 	provider := friends.NewXboxProvider(httpClient)
 	handler := friends.NewHandler(loggr, acctStore, provider)
@@ -77,7 +75,7 @@ func NewWithOptions(opts Options) (*Service, error) {
 }
 
 // New creates a new FriendConnect service with sensible defaults.
-func New(domain string, tokens ...*oauth2.Token) (*Service, error) {
+func New(ctx context.Context, domain string, tokens ...*oauth2.Token) (*Service, error) {
 	opts := Options{
 		Tokens: tokens,
 		Friends: FriendOptions{
@@ -108,18 +106,14 @@ func New(domain string, tokens ...*oauth2.Token) (*Service, error) {
 		},
 		Logger: nil,
 	}
-	return NewWithOptions(opts)
+	return NewWithOptions(ctx, opts)
 }
 
 // Run starts the FriendConnect service and begins listening for connections.
 func (s *Service) Run(ctx context.Context) error {
-	s.mu.Lock()
-	if s.started {
-		s.mu.Unlock()
+	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 		return fmt.Errorf("service already started")
 	}
-	s.started = true
-	s.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

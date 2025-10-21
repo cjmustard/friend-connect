@@ -2,6 +2,7 @@ package friendconnect
 
 import (
 	"log"
+	"net/http"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -24,6 +25,8 @@ type Options struct {
 	Relay RelayOptions
 	// Viewership controls how the session appears in Xbox Live and server browsers
 	Viewership session.ViewershipOptions
+	// HTTPClient is the HTTP client for making requests to Xbox Live services
+	HTTPClient *http.Client
 	// Logger is the logger instance for application logging and debugging output
 	Logger *log.Logger
 }
@@ -98,5 +101,8 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.Viewership.BroadcastSetting == 0 {
 		o.Viewership.BroadcastSetting = room.BroadcastSettingFriendsOfFriends
+	}
+	if o.HTTPClient == nil {
+		o.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
 }

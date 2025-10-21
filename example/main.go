@@ -55,7 +55,7 @@ func main() {
 		Logger: logger, // Logger instance for application logging and debugging output
 	}
 
-	svc, err := friendconnect.NewWithOptions(opts)
+	svc, err := friendconnect.NewWithOptions(context.Background(), opts)
 	if err != nil {
 		log.Fatalf("build friendconnect: %v", err)
 	}
