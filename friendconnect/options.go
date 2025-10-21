@@ -24,8 +24,6 @@ type Options struct {
 	Relay RelayOptions
 	// Viewership controls how the session appears in Xbox Live and server browsers
 	Viewership session.ViewershipOptions
-	// RTA defines Real-Time Activity connection settings for Xbox Live services
-	RTA RTAOptions
 	// Logger is the logger instance for application logging and debugging output
 	Logger *log.Logger
 }
@@ -66,27 +64,16 @@ type RelayOptions struct {
 	Timeout time.Duration
 }
 
-// RTAOptions defines Real-Time Activity connection settings for Xbox Live services.
-// These settings control how the service handles RTA connection timeouts and retries.
-type RTAOptions struct {
-	// MaxRetries is the maximum number of retry attempts for RTA connections
-	MaxRetries int
-	// BaseTimeout is the base timeout duration for RTA connection attempts
-	BaseTimeout time.Duration
-	// RetryBackoff is the base backoff duration between retry attempts
-	RetryBackoff time.Duration
-}
-
 // ApplyDefaults sets default values for any unset options.
 func (o *Options) ApplyDefaults() {
 	if o.Friends.SyncTicker <= 0 {
 		o.Friends.SyncTicker = time.Minute
 	}
 	if o.Listener.Address == "" {
-		o.Listener.Address = "0.0.0.0:19132"
+		o.Listener.Address = "0.0.0.0:19133"
 	}
 	if o.Listener.Name == "" {
-		o.Listener.Name = "Console Connect"
+		o.Listener.Name = "Friend Connect"
 	}
 	if o.Listener.Message == "" {
 		o.Listener.Message = "Minecraft Presence Relay"
@@ -111,14 +98,5 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.Viewership.BroadcastSetting == 0 {
 		o.Viewership.BroadcastSetting = room.BroadcastSettingFriendsOfFriends
-	}
-	if o.RTA.MaxRetries <= 0 {
-		o.RTA.MaxRetries = 3
-	}
-	if o.RTA.BaseTimeout <= 0 {
-		o.RTA.BaseTimeout = 30 * time.Second
-	}
-	if o.RTA.RetryBackoff <= 0 {
-		o.RTA.RetryBackoff = time.Second
 	}
 }

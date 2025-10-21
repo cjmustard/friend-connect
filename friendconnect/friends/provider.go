@@ -107,35 +107,6 @@ func (p *XboxProvider) AddFriendByXUID(ctx context.Context, acct *xbox.Account, 
 	return nil
 }
 
-func (p *XboxProvider) RemoveFriend(ctx context.Context, acct *xbox.Account, gamertag string) error {
-	if gamertag == "" {
-		return fmt.Errorf("missing gamertag")
-	}
-	token, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
-	if err != nil {
-		return fmt.Errorf("fetch token: %w", err)
-	}
-	xuid, err := p.lookupXUID(ctx, token, gamertag)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, xbox.PeopleURL(xuid), nil)
-	if err != nil {
-		return err
-	}
-	applyCommonHeaders(req, token)
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("remove friend request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("remove friend %s (%s): status %d: %s", gamertag, xuid, resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	return nil
-}
-
 func (p *XboxProvider) fetchPeople(ctx context.Context, endpoint string, token *xbox.Token) ([]person, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {

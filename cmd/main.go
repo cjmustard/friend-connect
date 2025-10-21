@@ -52,11 +52,6 @@ func main() {
 			OnlineCrossPlatformGame: true,                                  // Enable cross-platform play between PC, mobile, and console
 			CrossPlayDisabled:       false,                                 // Disable cross-play functionality between different platforms
 		},
-		RTA: friendconnect.RTAOptions{
-			MaxRetries:   3,                // Maximum number of retry attempts for RTA connections
-			BaseTimeout:  30 * time.Second, // Base timeout duration for RTA connection attempts
-			RetryBackoff: time.Second,      // Base backoff duration between retry attempts
-		},
 		Logger: logger, // Logger instance for application logging and debugging output
 	}
 
@@ -95,7 +90,7 @@ func tokenSource(tokenPath string) oauth2.TokenSource {
 
 	token := new(oauth2.Token)
 	if data, err := os.ReadFile(tokenPath); err == nil {
-		_ = json.Unmarshal(data, token)
+		json.Unmarshal(data, token)
 	} else {
 		fresh, reqErr := auth.RequestLiveToken()
 		if reqErr != nil {

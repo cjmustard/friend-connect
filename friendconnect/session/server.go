@@ -75,11 +75,6 @@ type Server struct {
 	netherProvider minecraft.ServerStatusProvider
 	netherCtx      context.Context
 	netherAccounts map[string]struct{}
-
-	// RTA connection configuration
-	rtaMaxRetries   int
-	rtaBaseTimeout  time.Duration
-	rtaRetryBackoff time.Duration
 }
 
 type Options struct {
@@ -201,22 +196,6 @@ func (m *Server) ConfigureViewership(opts ViewershipOptions) {
 	m.viewership = opts
 }
 
-// ConfigureRTA sets up the RTA connection options for Xbox Live services.
-func (m *Server) ConfigureRTA(maxRetries int, baseTimeout, retryBackoff time.Duration) {
-	if maxRetries <= 0 {
-		maxRetries = 3
-	}
-	if baseTimeout <= 0 {
-		baseTimeout = 30 * time.Second
-	}
-	if retryBackoff <= 0 {
-		retryBackoff = time.Second
-	}
-	m.rtaMaxRetries = maxRetries
-	m.rtaBaseTimeout = baseTimeout
-	m.rtaRetryBackoff = retryBackoff
-}
-
 func (m *Server) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -260,12 +239,7 @@ func (m *Server) startAccount(acct *xbox.Account) {
 	ctx := m.sessionContext()
 	go func() {
 		if err := m.ensureSession(ctx, acct); err != nil {
-			// Handle RTA connection failures more gracefully during account startup
-			if strings.Contains(err.Error(), "RTA connection") {
-				m.log.Printf("RTA connection issue during account startup for %s (will retry): %v", acct.Gamertag(), err)
-			} else {
-				m.log.Printf("create session failed for %s: %v", acct.Gamertag(), err)
-			}
+			m.log.Printf("create session failed for %s: %v", acct.Gamertag(), err)
 		}
 	}()
 	go m.runPresence(ctx, acct)
@@ -322,8 +296,7 @@ func (m *Server) startNetherForAccount(ctx context.Context, provider minecraft.S
 }
 
 func (m *Server) runPresence(ctx context.Context, acct *xbox.Account) {
-	backoff := 10 * time.Second
-	maxBackoff := 5 * time.Minute
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -334,19 +307,9 @@ func (m *Server) runPresence(ctx context.Context, acct *xbox.Account) {
 		delay, err := m.updatePresence(ctx, acct)
 		if err != nil {
 			m.log.Printf("presence update failed for %s: %v", acct.Gamertag(), err)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return
-			}
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			continue
+			return
 		}
 
-		backoff = 10 * time.Second
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
@@ -357,16 +320,7 @@ func (m *Server) runPresence(ctx context.Context, acct *xbox.Account) {
 
 func (m *Server) updatePresence(ctx context.Context, acct *xbox.Account) (time.Duration, error) {
 	if err := m.ensureSession(ctx, acct); err != nil {
-		// Don't log every RTA connection failure as an error - it's expected to happen occasionally
-		if strings.Contains(err.Error(), "RTA connection") {
-			m.log.Printf("RTA connection issue for %s (will retry): %v", acct.Gamertag(), err)
-		} else {
-			m.log.Printf("ensure session failed for %s: %v", acct.Gamertag(), err)
-		}
-		// Return a shorter delay for RTA connection issues to retry sooner
-		if strings.Contains(err.Error(), "RTA connection") {
-			return 30 * time.Second, nil
-		}
+		return time.Minute, err
 	}
 	tok, err := acct.Token(ctx, xbox.RelyingPartyXboxLive)
 	if err != nil {
@@ -423,7 +377,7 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 	}
 	ann := m.announcerFor(acct)
 
-	if err := m.announceWithRetry(ctx, ann, &status, acct.Gamertag()); err != nil {
+	if err := ann.Announce(ctx, status); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
 	if ann.Session != nil {
@@ -460,63 +414,6 @@ func (m *Server) storeSession(id string, sess *mpsd.Session) {
 	m.sessMu.Lock()
 	m.sessions[id] = sess
 	m.sessMu.Unlock()
-}
-
-// announceWithRetry handles RTA connection timeouts and retries with exponential backoff
-func (m *Server) announceWithRetry(ctx context.Context, ann *room.XBLAnnouncer, status *room.Status, gamertag string) error {
-	maxRetries := m.rtaMaxRetries
-	if maxRetries <= 0 {
-		maxRetries = 3
-	}
-	baseTimeout := m.rtaBaseTimeout
-	if baseTimeout <= 0 {
-		baseTimeout = 30 * time.Second
-	}
-	retryBackoff := m.rtaRetryBackoff
-	if retryBackoff <= 0 {
-		retryBackoff = time.Second
-	}
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Create a timeout context for this attempt
-		timeout := baseTimeout * time.Duration(1<<attempt) // Exponential backoff: 30s, 60s, 120s
-		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
-
-		err := ann.Announce(attemptCtx, *status)
-		cancel()
-
-		if err == nil {
-			// Success - reset any previous error logging
-			if attempt > 0 {
-				m.log.Printf("RTA connection recovered for %s after %d attempts", gamertag, attempt+1)
-			}
-			return nil
-		}
-
-		// Check if it's a context timeout or cancellation
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// Log the error with attempt information
-		m.log.Printf("RTA connection attempt %d failed for %s: %v", attempt+1, gamertag, err)
-
-		// If this is the last attempt, return the error
-		if attempt == maxRetries-1 {
-			return fmt.Errorf("RTA connection failed after %d attempts: %w", maxRetries, err)
-		}
-
-		// Wait before retrying (exponential backoff)
-		backoff := time.Duration(1<<attempt) * retryBackoff // 1s, 2s, 4s (or configured backoff)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-			// Continue to next attempt
-		}
-	}
-
-	return errors.New("unexpected retry loop exit")
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
@@ -628,12 +525,7 @@ func (m *Server) refreshSessions(ctx context.Context) {
 		case <-ticker.C:
 			m.accounts.WithAccounts(func(acct *xbox.Account) {
 				if err := m.ensureSession(ctx, acct); err != nil {
-					// Handle RTA connection failures more gracefully
-					if strings.Contains(err.Error(), "RTA connection") {
-						m.log.Printf("RTA connection issue during refresh for %s (will retry): %v", acct.Gamertag(), err)
-					} else {
-						m.log.Printf("refresh session failed for %s: %v", acct.Gamertag(), err)
-					}
+					m.log.Printf("refresh session failed for %s: %v", acct.Gamertag(), err)
 				}
 			})
 		}
@@ -672,7 +564,19 @@ func (m *Server) Listen(ctx context.Context, opts Options) error {
 			m.log.Printf("accept connection failed: %v", err)
 			continue
 		}
-		go m.handleConn(ctx, conn.(*minecraft.Conn))
+
+		minecraftConn := conn.(*minecraft.Conn)
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-minecraftConn.Context().Done():
+				m.log.Printf("main connection lost, attempting immediate reconnection")
+				time.Sleep(500 * time.Millisecond)
+				return
+			}
+		}()
+		go m.handleConn(ctx, minecraftConn)
 	}
 }
 
@@ -695,12 +599,7 @@ func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
 
 	go m.accounts.WithAccounts(func(acct *xbox.Account) {
 		if err := m.ensureSession(context.Background(), acct); err != nil {
-			// Handle RTA connection failures more gracefully during initial setup
-			if strings.Contains(err.Error(), "RTA connection") {
-				m.log.Printf("RTA connection issue during initial setup for %s (will retry): %v", acct.Gamertag(), err)
-			} else {
-				m.log.Printf("update session failed for %s: %v", acct.Gamertag(), err)
-			}
+			m.log.Printf("update session failed for %s: %v", acct.Gamertag(), err)
 		}
 	})
 }
@@ -727,85 +626,83 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 		networkName = fmt.Sprintf("nethernet:%s", acct.SessionID())
 	}
 
-	for {
-		if ctx.Err() != nil {
+	if ctx.Err() != nil {
+		return
+	}
+	sig, done, err := m.nether.WaitSignaling(ctx, acct)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return
 		}
-		sig, done, err := m.nether.WaitSignaling(ctx, acct)
-		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-				return
-			}
-			m.log.Printf("wait nether signaling failed for %s: %v", acct.Gamertag(), err)
-			time.Sleep(time.Second)
-			continue
+		m.log.Printf("wait nether signaling failed for %s: %v", acct.Gamertag(), err)
+		return
+	}
+	if sig == nil {
+		return
+	}
+
+	doneCh := done
+	if doneCh == nil {
+		doneCh = ctx.Done()
+	}
+
+	m.nether.RegisterNetwork(networkName, func(l *slog.Logger) minecraft.Network {
+		if l == nil {
+			l = slog.New(slog.NewTextHandler(os.Stdout, nil))
 		}
-		if sig == nil {
-			continue
+		return minecraft.NetherNet{
+			Signaling: sig,
+			ListenConfig: nethernet.ListenConfig{
+				Log: l,
+			},
 		}
+	})
 
-		doneCh := done
-		if doneCh == nil {
-			doneCh = ctx.Done()
+	listener, err := minecraft.ListenConfig{
+		StatusProvider: provider,
+		PacketFunc:     m.handlePackets,
+	}.Listen(networkName, "")
+	if err != nil {
+		m.log.Printf("listen nether failed for %s: %v", acct.Gamertag(), err)
+		return
+	}
+
+	acceptCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-doneCh:
+		case <-ctx.Done():
 		}
-
-		m.nether.RegisterNetwork(networkName, func(l *slog.Logger) minecraft.Network {
-			if l == nil {
-				l = slog.New(slog.NewTextHandler(os.Stdout, nil))
-			}
-			return minecraft.NetherNet{
-				Signaling: sig,
-				ListenConfig: nethernet.ListenConfig{
-					Log: l,
-				},
-			}
-		})
-
-		listener, err := minecraft.ListenConfig{
-			StatusProvider: provider,
-			PacketFunc:     m.handlePackets,
-		}.Listen(networkName, "")
-		if err != nil {
-			m.log.Printf("listen nether failed for %s: %v", acct.Gamertag(), err)
-			select {
-			case <-ctx.Done():
-				return
-			case <-doneCh:
-			}
-			continue
-		}
-
-		acceptCtx, cancel := context.WithCancel(ctx)
-		go func() {
-			select {
-			case <-doneCh:
-			case <-ctx.Done():
-			}
-			cancel()
-			_ = listener.Close()
-		}()
-
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) || acceptCtx.Err() != nil {
-					break
-				}
-				m.log.Printf("accept nether connection failed: %v", err)
-				continue
-			}
-			go m.handleConn(acceptCtx, conn.(*minecraft.Conn))
-		}
-
 		cancel()
 		_ = listener.Close()
+	}()
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-doneCh:
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) || acceptCtx.Err() != nil {
+				break
+			}
+			m.log.Printf("accept nether connection failed: %v", err)
+			continue
 		}
+
+		netherConn := conn.(*minecraft.Conn)
+		go func() {
+			select {
+			case <-acceptCtx.Done():
+				return
+			case <-netherConn.Context().Done():
+				m.log.Printf("nether connection lost, attempting immediate reconnection")
+				time.Sleep(500 * time.Millisecond)
+				return
+			}
+		}()
+		go m.handleConn(acceptCtx, netherConn)
 	}
+
+	cancel()
+	_ = listener.Close()
 }
 
 func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
@@ -875,7 +772,42 @@ func (m *Server) handleConn(ctx context.Context, conn *minecraft.Conn) {
 		return
 	}
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+		return
+	case <-conn.Context().Done():
+		m.log.Printf("connection lost for %s, initiating reconnection", addr)
+		go m.reconnectClient(addr, host)
+		return
+	}
+}
+
+func (m *Server) reconnectClient(addr string, host *xbox.Account) {
+	if m.nether == nil {
+		return
+	}
+
+	ctx := m.sessionContext()
+	reconnectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	for {
+		select {
+		case <-reconnectCtx.Done():
+			m.log.Printf("reconnection timeout for %s", addr)
+			return
+		default:
+		}
+
+		if err := m.ensureSession(reconnectCtx, host); err != nil {
+			m.log.Printf("reconnection session failed for %s: %v", addr, err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		m.log.Printf("reconnection successful for %s", addr)
+		return
+	}
 }
 
 func (m *Server) waitForTransferFlag(ctx context.Context) (*xbox.Account, error) {
@@ -988,8 +920,6 @@ func (m *Server) transferClient(ctx context.Context, conn *minecraft.Conn) error
 	if err := conn.Flush(); err != nil {
 		return fmt.Errorf("flush transfer packet: %w", err)
 	}
-	// Allow ample time for clients to process the transfer and tear down their
-	// RakNet connection themselves before the listener forces the close.
 	select {
 	case <-ctx.Done():
 	case <-time.After(2 * time.Second):
@@ -1023,22 +953,7 @@ func (m *Server) verifyRelayTarget(ctx context.Context, timeout time.Duration) e
 	}
 	m.relayCheck.mu.Unlock()
 
-	pingCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	result := make(chan error, 1)
-	go func(addr string) {
-		_, err := raknet.Ping(addr)
-		result <- err
-	}(m.relay.RemoteAddress)
-
-	var err error
-	select {
-	case err = <-result:
-	case <-pingCtx.Done():
-		err = pingCtx.Err()
-	}
-
+	_, err := raknet.Ping(m.relay.RemoteAddress)
 	if err != nil {
 		err = fmt.Errorf("ping relay target %s: %w", m.relay.RemoteAddress, err)
 	}

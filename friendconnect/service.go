@@ -63,7 +63,6 @@ func NewWithOptions(opts Options) (*Service, error) {
 		Timeout:       opts.Relay.Timeout,
 	})
 	server.ConfigureViewership(opts.Viewership)
-	server.ConfigureRTA(opts.RTA.MaxRetries, opts.RTA.BaseTimeout, opts.RTA.RetryBackoff)
 
 	srv := &Service{
 		opts:     opts,
@@ -106,11 +105,6 @@ func New(domain string, tokens ...*oauth2.Token) (*Service, error) {
 			LanGame:                 false,
 			OnlineCrossPlatformGame: true,
 			CrossPlayDisabled:       false,
-		},
-		RTA: RTAOptions{
-			MaxRetries:   3,
-			BaseTimeout:  30 * time.Second,
-			RetryBackoff: time.Second,
 		},
 		Logger: nil,
 	}

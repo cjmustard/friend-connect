@@ -17,7 +17,6 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth/authclient"
 	"github.com/sandertv/gophertunnel/minecraft/auth/franchise/signaling"
-	"golang.org/x/oauth2"
 
 	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
@@ -250,7 +249,6 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 		return
 	}
 
-	backoff := 5 * time.Second
 	for {
 		select {
 		case <-ctx.Done():
@@ -261,12 +259,7 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 		src := acct.TokenSource()
 		if src == nil {
 			m.log.Printf("missing token source for %s", acct.Gamertag())
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return
-			}
-			continue
+			return
 		}
 		d := signaling.Dialer{
 			NetworkID:  sess.networkID,
@@ -280,18 +273,11 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 				return
 			}
 			m.log.Printf("dial nethernet failed for %s: %v", acct.Gamertag(), err)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return
-			}
-			if backoff < time.Minute {
-				backoff *= 2
-			}
+			m.log.Printf("retrying connection for %s in 2 seconds", acct.Gamertag())
+			time.Sleep(2 * time.Second)
 			continue
 		}
 
-		backoff = 5 * time.Second
 		done := make(chan struct{})
 		sess.setSignaling(conn, done)
 		sess.readyOnce.Do(func() { close(sess.ready) })
@@ -307,32 +293,20 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 		select {
 		case <-ctx.Done():
 			stop()
-			// Give the connection time to clean up gracefully
 			time.Sleep(100 * time.Millisecond)
 			_ = conn.Close()
 			sess.setSignaling(nil, nil)
 			return
 		case <-done:
 			stop()
-			// Give the connection time to clean up gracefully
 			time.Sleep(100 * time.Millisecond)
 			_ = conn.Close()
 			sess.setSignaling(nil, nil)
-			if ctx.Err() != nil {
-				return
-			}
+			m.log.Printf("nethernet connection lost for %s, reconnecting", acct.Gamertag())
+			time.Sleep(1 * time.Second)
 			continue
 		}
 	}
-}
-
-// TokenSource exposes the underlying oauth2.TokenSource for the provided
-// account. If the account is nil, nil is returned.
-func (m *SignalingHub) TokenSource(acct *xbox.Account) oauth2.TokenSource {
-	if acct == nil {
-		return nil
-	}
-	return acct.TokenSource()
 }
 
 func randomUint64() uint64 {

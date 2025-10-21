@@ -29,13 +29,8 @@ const (
 )
 
 var (
-	RtaWebsocketURL      = "wss://rta.xboxlive.com/connect"
-	FollowersURL         = "https://peoplehub.xboxlive.com/users/me/people/followers"
-	SocialURL            = "https://peoplehub.xboxlive.com/users/me/people/social"
-	SocialSummaryURL     = "https://social.xboxlive.com/users/me/summary"
-	WebsocketDialTimeout = 10 * time.Second
-	ConnectionTypeWebRTC = 3
-	MaxFriends           = 2000
+	FollowersURL = "https://peoplehub.xboxlive.com/users/me/people/followers"
+	SocialURL    = "https://peoplehub.xboxlive.com/users/me/people/social"
 )
 
 func PeopleURL(xuid string) string {
@@ -185,13 +180,6 @@ func (a *Account) Token(ctx context.Context, relyingParty string) (*Token, error
 }
 
 // AuthorizationHeader returns the authorization header for Xbox Live API requests.
-func (a *Account) AuthorizationHeader(ctx context.Context, relyingParty string) (string, error) {
-	tok, err := a.Token(ctx, relyingParty)
-	if err != nil {
-		return "", err
-	}
-	return tok.Header, nil
-}
 
 func (a *Account) TokenSource() oauth2.TokenSource {
 	a.mu.RLock()
@@ -235,16 +223,6 @@ func (a *Account) UpdateStatus(status Status, metadata map[string]any) {
 	}
 }
 
-func (a *Account) Metadata(key string) (any, bool) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.metadata == nil {
-		return nil, false
-	}
-	v, ok := a.metadata[key]
-	return v, ok
-}
-
 type Token struct {
 	Header   string
 	Gamertag string
@@ -260,15 +238,6 @@ type TokenManager struct {
 	onUpdate func(*Token)
 	mu       sync.Mutex
 	client   *authclient.AuthClient
-}
-
-// NewTokenManager creates a new token manager from a refresh token.
-func NewTokenManager(refreshToken string, onUpdate func(*Token)) *TokenManager {
-	if refreshToken == "" {
-		return nil
-	}
-	seed := &oauth2.Token{RefreshToken: refreshToken, Expiry: time.Now().Add(-time.Hour)}
-	return NewTokenManagerFromToken(seed, onUpdate)
 }
 
 // NewTokenManagerFromToken creates a new token manager from an OAuth2 token.

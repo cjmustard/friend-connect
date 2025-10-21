@@ -2,7 +2,6 @@ package friends
 
 import (
 	"context"
-	"errors"
 	"log"
 	"sync"
 	"time"
@@ -23,7 +22,6 @@ type Provider interface {
 	ListFriends(ctx context.Context, acct *xbox.Account) ([]Friend, error)
 	AddFriend(ctx context.Context, acct *xbox.Account, gamertag string) error
 	AddFriendByXUID(ctx context.Context, acct *xbox.Account, xuid, gamertag string) error
-	RemoveFriend(ctx context.Context, acct *xbox.Account, gamertag string) error
 	PendingRequests(ctx context.Context, acct *xbox.Account) ([]Request, error)
 	AcceptRequests(ctx context.Context, acct *xbox.Account, xuids []string) ([]Request, error)
 }
@@ -179,39 +177,10 @@ func (m *Handler) acceptPending(ctx context.Context) {
 			accepted = requests
 		}
 
-		for _, r := range accepted {
-			name := r.Gamertag
-			if name == "" {
-				name = r.XUID
-			}
-		}
-
 		if len(accepted) > 0 {
 			m.log.Printf("friend requests accepted: %s (%d)", tag, len(accepted))
 		}
 	})
-}
-
-func (m *Handler) AutoAdd(ctx context.Context, gamertag string) error {
-	if gamertag == "" {
-		return errors.New("missing gamertag")
-	}
-
-	addedCount := 0
-	m.accounts.WithAccounts(func(acct *xbox.Account) {
-		tag := acct.Gamertag()
-		if err := m.provider.AddFriend(ctx, acct, gamertag); err != nil {
-			m.log.Printf("auto add friend failed for %s -> %s: %v", tag, gamertag, err)
-		} else {
-			addedCount++
-		}
-	})
-
-	if addedCount > 0 {
-		m.log.Printf("auto add: %s (%d)", gamertag, addedCount)
-	}
-
-	return nil
 }
 
 func (m *Handler) Friends(gamertag string) []Friend {
@@ -219,12 +188,8 @@ func (m *Handler) Friends(gamertag string) []Friend {
 	defer m.mu.RUnlock()
 	friends := m.friends[gamertag]
 	out := make([]Friend, len(friends))
-	copySlice(out, friends)
+	copy(out, friends)
 	return out
-}
-
-func copySlice(dst, src []Friend) {
-	copy(dst, src)
 }
 
 func (m *Handler) logSyncSummary() {
