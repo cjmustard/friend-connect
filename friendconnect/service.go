@@ -81,7 +81,7 @@ func New(ctx context.Context, domain string, tokens ...*oauth2.Token) (*Service,
 		Friends: FriendOptions{
 			AutoAccept: true,
 			AutoAdd:    true,
-			SyncTicker: time.Minute,
+			SyncTicker: 20 * time.Second,
 		},
 		Listener: ListenerOptions{
 			Address: "0.0.0.0:19132",

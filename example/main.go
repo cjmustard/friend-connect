@@ -28,7 +28,7 @@ func main() {
 		Friends: friendconnect.FriendOptions{
 			AutoAccept: true,             // Automatically accept incoming friend requests without manual approval
 			AutoAdd:    true,             // Automatically add accepted friends to the current session
-			SyncTicker: 10 * time.Second, // Interval for synchronizing friend list with Xbox Live services
+			SyncTicker: 20 * time.Second, // Interval for synchronizing friend list with Xbox Live services
 		},
 		Listener: friendconnect.ListenerOptions{
 			Address: "0.0.0.0:19133",            // Network address and port where the local server will listen for connections, assign to any un-used port

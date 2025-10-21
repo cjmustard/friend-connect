@@ -217,6 +217,6 @@ func (m *Handler) logSyncSummary() {
 	}
 
 	if totalFriends > 0 {
-		m.log.Printf("friend sync: %d accounts, %d total friends, %d online", accountCount, totalFriends, onlineFriends)
+		m.log.Printf("friend sync: %d account(s), %d total friend(s), %d online", accountCount, totalFriends, onlineFriends)
 	}
 }

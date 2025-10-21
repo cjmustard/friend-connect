@@ -49,7 +49,7 @@ opts := friendconnect.Options{
     Friends: friendconnect.FriendOptions{
         AutoAccept: true,             // Automatically accept incoming friend requests
         AutoAdd:    true,             // Automatically add accepted friends to session
-        SyncTicker: 10 * time.Second, // Interval for synchronizing friend list
+        SyncTicker: 20 * time.Second, // Interval for synchronizing friend list
     },
     Listener: friendconnect.ListenerOptions{
         Address: "0.0.0.0:19133",            // Local server address and port
