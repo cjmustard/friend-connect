@@ -4,7 +4,7 @@ A Minecraft server relay that lets your Xbox Live friends join you on any Minecr
 
 ![Friend Connect in Action](https://github.com/cjmustard/friend-connect/blob/main/assets/screenshot.png)
 
-*How Friend Connect appears in your friends' Minecraft server list*
+*How Friend Connect appears in your friends' Minecraft server list before configuration*
 
 ## What it does
 
