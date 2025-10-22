@@ -366,14 +366,7 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 		return fmt.Errorf("failed to create announcer for %s", acct.Gamertag())
 	}
 
-	if err := func() (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("announcer panic: %v", r)
-			}
-		}()
-		return ann.Announce(ctx, status)
-	}(); err != nil {
+	if err := ann.Announce(ctx, status); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
 	if ann.Session != nil {
@@ -417,14 +410,7 @@ func (m *Server) cleanup() {
 	defer m.mu.Unlock()
 	for _, ann := range m.announcers {
 		if ann != nil {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						m.log.Printf("warning: announcer cleanup panic: %v", r)
-					}
-				}()
-				ann.Close()
-			}()
+			ann.Close()
 		}
 	}
 	m.announcers = map[string]*room.XBLAnnouncer{}

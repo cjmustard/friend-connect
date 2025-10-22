@@ -48,4 +48,4 @@ replace github.com/sandertv/gophertunnel => github.com/lumineproxy/gophertunnel 
 
 replace github.com/df-mc/go-playfab => github.com/lactyy/go-playfab v0.0.0-20240911042657-037f6afe426f
 
-replace github.com/df-mc/go-xsapi => github.com/lactyy/go-xsapi v0.0.0-20240911052022-1b9dffef64ab
+replace github.com/df-mc/go-xsapi => github.com/lumineproxy/go-xsapi v0.0.0-20241106000924-0d63855436c1
