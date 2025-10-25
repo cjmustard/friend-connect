@@ -62,7 +62,6 @@ func NewWithOptions(ctx context.Context, opts Options) (*Service, error) {
 	server := session.NewServer(loggr, acctStore, netherHub, httpClient)
 	server.ConfigureRelay(session.RelayOptions{
 		RemoteAddress: opts.Relay.RemoteAddress,
-		VerifyTarget:  opts.Relay.VerifyTarget,
 		Timeout:       opts.Relay.Timeout,
 	})
 	server.ConfigureViewership(opts.Viewership)
@@ -95,7 +94,6 @@ func New(ctx context.Context, domain string, tokens ...*oauth2.Token) (*Service,
 		},
 		Relay: RelayOptions{
 			RemoteAddress: domain,
-			VerifyTarget:  false,
 			Timeout:       5 * time.Second,
 		},
 		Viewership: session.ViewershipOptions{

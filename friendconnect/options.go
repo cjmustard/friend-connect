@@ -61,8 +61,6 @@ type ListenerOptions struct {
 type RelayOptions struct {
 	// RemoteAddress is the target Minecraft server address that connections will be relayed to
 	RemoteAddress string
-	// VerifyTarget indicates whether to verify the target server is reachable before starting
-	VerifyTarget bool
 	// Timeout is the maximum time to wait when connecting to the target server
 	Timeout time.Duration
 }
@@ -83,9 +81,6 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.Relay.Timeout <= 0 {
 		o.Relay.Timeout = 5 * time.Second
-	}
-	if o.Relay.RemoteAddress != "" && !o.Relay.VerifyTarget {
-		o.Relay.VerifyTarget = true
 	}
 	if o.Viewership.MaxMemberCount <= 0 {
 		o.Viewership.MaxMemberCount = 8

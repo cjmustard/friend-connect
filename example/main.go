@@ -37,7 +37,6 @@ func main() {
 		},
 		Relay: friendconnect.RelayOptions{
 			RemoteAddress: "play.lumineproxy.org:19132", // Target Minecraft server address that connections will be relayed to
-			VerifyTarget:  false,            // Whether to verify the target server is reachable before starting
 			Timeout:       5 * time.Second,  // Maximum time to wait when connecting to the target server
 		},
 		Viewership: session.ViewershipOptions{

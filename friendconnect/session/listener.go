@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/google/uuid"
@@ -49,15 +48,6 @@ func (m *Server) Listen(ctx context.Context, opts Options) error {
 		}
 
 		minecraftConn := conn.(*minecraft.Conn)
-		go func(mc *minecraft.Conn) {
-			select {
-			case <-ctx.Done():
-				return
-			case <-mc.Context().Done():
-				m.log.Printf("main connection lost, attempting immediate reconnection")
-				time.Sleep(connectionRetryDelay)
-			}
-		}(minecraftConn)
 		go m.handleConn(ctx, minecraftConn)
 	}
 }

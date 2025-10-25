@@ -16,15 +16,10 @@ import (
 )
 
 const (
-	relayCheckInterval     = 15 * time.Second
-	transferFlagTimeout    = 20 * time.Second
 	httpClientTimeout      = 10 * time.Second
 	relayTimeout           = 5 * time.Second
 	presenceRetryInterval  = time.Minute
 	sessionRefreshInterval = 5 * time.Minute
-	reconnectTimeout       = 30 * time.Second
-	reconnectRetryInterval = 2 * time.Second
-	connectionRetryDelay   = 500 * time.Millisecond
 	transferWaitTimeout    = 2 * time.Second
 )
 
@@ -34,7 +29,6 @@ type Server struct {
 	listener *minecraft.Listener
 
 	conns           map[string]*minecraft.Conn
-	subsessions     map[string]*ClientSession
 	announcers      map[string]*room.XBLAnnouncer
 	sessions        map[string]*mpsd.Session
 	startedAccounts map[string]struct{}
@@ -50,7 +44,6 @@ type Server struct {
 
 	relay      RelayOptions
 	viewership ViewershipOptions
-	relayCheck relayCheckState
 
 	ctx context.Context
 
@@ -62,16 +55,8 @@ type Options struct {
 	Provider minecraft.ServerStatusProvider
 }
 
-type ClientSession struct {
-	Account  *xbox.Account
-	Conn     *minecraft.Conn
-	LastPing time.Time
-	mu       sync.RWMutex
-}
-
 type RelayOptions struct {
 	RemoteAddress string
-	VerifyTarget  bool
 	Timeout       time.Duration
 }
 
@@ -101,12 +86,6 @@ type ViewershipOptions struct {
 	CrossPlayDisabled bool
 }
 
-type relayCheckState struct {
-	mu        sync.Mutex
-	lastCheck time.Time
-	err       error
-}
-
 // NewServer creates a new Minecraft server instance with the provided dependencies.
 // The server handles Xbox Live session announcements and client connections.
 func NewServer(logger *log.Logger, accounts *xbox.Store, netherHub *SignalingHub, httpClient *http.Client) *Server {
@@ -120,7 +99,6 @@ func NewServer(logger *log.Logger, accounts *xbox.Store, netherHub *SignalingHub
 		log:             logger,
 		accounts:        accounts,
 		conns:           map[string]*minecraft.Conn{},
-		subsessions:     map[string]*ClientSession{},
 		httpClient:      httpClient,
 		nether:          netherHub,
 		announcers:      map[string]*room.XBLAnnouncer{},

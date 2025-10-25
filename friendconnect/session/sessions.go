@@ -98,12 +98,6 @@ func (m *Server) Reset() {
 	}
 	m.conns = map[string]*minecraft.Conn{}
 
-	for _, sess := range m.subsessions {
-		if sess != nil && sess.Conn != nil {
-			sess.Conn.Close()
-		}
-	}
-	m.subsessions = map[string]*ClientSession{}
 	m.sessions = map[string]*mpsd.Session{}
 	m.startedAccounts = map[string]struct{}{}
 	m.netherAccounts = map[string]struct{}{}
