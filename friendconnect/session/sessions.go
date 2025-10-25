@@ -2,12 +2,9 @@ package session
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -108,15 +105,12 @@ func (m *Server) Reset() {
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
-	hostName := defaultIfEmpty(m.viewership.HostName, defaultHostName(acct.Gamertag()))
-	worldName := defaultIfEmpty(m.viewership.WorldName, defaultWorldName(acct.Gamertag()))
-
 	status := room.Status{
 		Joinability:             m.viewership.Joinability,
-		HostName:                hostName,
+		HostName:                m.viewership.HostName,
 		OwnerID:                 tok.XUID,
 		Version:                 protocol.CurrentVersion,
-		WorldName:               worldName,
+		WorldName:               m.viewership.WorldName,
 		WorldType:               m.viewership.WorldType,
 		Protocol:                protocol.CurrentProtocol,
 		MemberCount:             m.viewership.MemberCount,
@@ -126,14 +120,6 @@ func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.
 		OnlineCrossPlatformGame: m.viewership.OnlineCrossPlatformGame,
 		CrossPlayDisabled:       m.viewership.CrossPlayDisabled,
 	}
-
-	status.LevelID = randomLevelID()
-
-	titleID, err := strconv.ParseInt(xbox.TitleID, 10, 64)
-	if err != nil {
-		return room.Status{}, fmt.Errorf("parse title id: %w", err)
-	}
-	status.TitleID = titleID
 
 	if m.listener != nil {
 		port, guid := m.listenerInfo()
@@ -184,14 +170,6 @@ func (m *Server) listenerInfo() (uint16, string) {
 	return port, guid
 }
 
-func randomLevelID() string {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return base64.StdEncoding.EncodeToString([]byte("console"))
-	}
-	return base64.StdEncoding.EncodeToString(buf)
-}
-
 func (m *Server) refreshSessions(ctx context.Context) {
 	ticker := time.NewTicker(sessionRefreshInterval)
 	defer ticker.Stop()
@@ -207,25 +185,4 @@ func (m *Server) refreshSessions(ctx context.Context) {
 			})
 		}
 	}
-}
-
-func defaultHostName(gamertag string) string {
-	if gamertag == "" {
-		return "Console Connect"
-	}
-	return gamertag
-}
-
-func defaultWorldName(gamertag string) string {
-	if gamertag == "" {
-		return "Minecraft World"
-	}
-	return fmt.Sprintf("%s Realm", gamertag)
-}
-
-func defaultIfEmpty(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-	return value
 }
