@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 
@@ -198,10 +197,6 @@ func (m *Server) transferClient(ctx context.Context, conn *minecraft.Conn) error
 		return fmt.Errorf("invalid relay address: %w", err)
 	}
 
-	if err := m.verifyRelayTarget(); err != nil {
-		return err
-	}
-
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		return fmt.Errorf("parse relay port: %w", err)
@@ -232,32 +227,6 @@ func (m *Server) notifyTransferFailure(conn *minecraft.Conn, relayErr error) {
 		Message: msg,
 	})
 	_ = conn.Flush()
-}
-
-func (m *Server) verifyRelayTarget() error {
-	if m.relay.RemoteAddress == "" || !m.relay.VerifyTarget {
-		return nil
-	}
-
-	m.relayCheck.mu.Lock()
-	if !m.relayCheck.lastCheck.IsZero() && time.Since(m.relayCheck.lastCheck) < relayCheckInterval {
-		cachedErr := m.relayCheck.err
-		m.relayCheck.mu.Unlock()
-		return cachedErr
-	}
-	m.relayCheck.mu.Unlock()
-
-	_, err := raknet.Ping(m.relay.RemoteAddress)
-	if err != nil {
-		err = fmt.Errorf("ping relay target %s: %w", m.relay.RemoteAddress, err)
-	}
-
-	m.relayCheck.mu.Lock()
-	m.relayCheck.lastCheck = time.Now()
-	m.relayCheck.err = err
-	m.relayCheck.mu.Unlock()
-
-	return err
 }
 
 func (s *ClientSession) UpdateLastPing() {

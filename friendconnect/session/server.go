@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/df-mc/go-xsapi/mpsd"
-	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 
