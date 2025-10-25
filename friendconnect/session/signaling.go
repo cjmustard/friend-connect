@@ -27,7 +27,6 @@ const (
 	netherCloseDelay     = 100 * time.Millisecond
 	netherReconnectDelay = time.Second
 
-	pendingChannelBuffer  = 32
 	signalingNotifyBuffer = 1
 )
 
@@ -35,15 +34,9 @@ type SignalingHub struct {
 	log      *log.Logger
 	accounts *xbox.Store
 
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	sessions map[string]*SignalingSession
-
-	pending chan *SignalingSession
-
-	networkMu sync.Mutex
-
-	ctx   context.Context
-	ctxMu sync.RWMutex
+	ctx      context.Context
 }
 
 type SignalingSession struct {
@@ -57,9 +50,6 @@ type SignalingSession struct {
 	readyOnce sync.Once
 
 	startOnce sync.Once
-
-	mu               sync.Mutex
-	pendingTransfers int
 
 	sigMu           sync.RWMutex
 	signaling       nethernet.Signaling
@@ -79,9 +69,6 @@ func (n *notifier) NotifySignal(signal *nethernet.Signal) {
 
 	switch signal.Type {
 	case nethernet.SignalTypeOffer:
-		if n.sess != nil {
-			n.sess.flagTransfer()
-		}
 	case nethernet.SignalTypeError:
 		if signal.Data != "" {
 			n.log.Printf("nethernet connection error: %s (connection: %d) - %s", n.tag, signal.ConnectionID, signal.Data)
@@ -108,7 +95,6 @@ func NewSignalingHub(logger *log.Logger, accounts *xbox.Store) *SignalingHub {
 		log:      logger,
 		accounts: accounts,
 		sessions: map[string]*SignalingSession{},
-		pending:  make(chan *SignalingSession, pendingChannelBuffer),
 	}
 }
 
@@ -136,23 +122,16 @@ func (h *SignalingHub) Stop() {
 	h.sessions = map[string]*SignalingSession{}
 }
 
-func (h *SignalingHub) AttachAccount(acct *xbox.Account) {
-	if acct == nil {
-		return
-	}
-	h.startSession(acct)
-}
-
 func (h *SignalingHub) setContext(ctx context.Context) {
-	h.ctxMu.Lock()
+	h.mu.Lock()
 	h.ctx = ctx
-	h.ctxMu.Unlock()
+	h.mu.Unlock()
 }
 
 func (h *SignalingHub) sessionContext() context.Context {
-	h.ctxMu.RLock()
+	h.mu.RLock()
 	ctx := h.ctx
-	h.ctxMu.RUnlock()
+	h.mu.RUnlock()
 	if ctx == nil {
 		return context.Background()
 	}
@@ -193,7 +172,7 @@ func (m *SignalingHub) NetworkName(acct *xbox.Account) string {
 	if sess == nil {
 		return ""
 	}
-	return sess.network()
+	return sess.networkName
 }
 
 func (m *SignalingHub) WaitSignaling(ctx context.Context, acct *xbox.Account) (nethernet.Signaling, <-chan struct{}, error) {
@@ -232,9 +211,7 @@ func (m *SignalingHub) RegisterNetwork(name string, factory func(*slog.Logger) m
 	if name == "" || factory == nil {
 		return
 	}
-	m.networkMu.Lock()
 	minecraft.RegisterNetwork(name, factory)
-	m.networkMu.Unlock()
 }
 
 func (m *SignalingHub) sessionFor(acct *xbox.Account) *SignalingSession {
@@ -351,87 +328,4 @@ func (s *SignalingSession) signalingState() (nethernet.Signaling, <-chan struct{
 	s.sigMu.RLock()
 	defer s.sigMu.RUnlock()
 	return s.signaling, s.signalingDone
-}
-
-func (s *SignalingSession) network() string {
-	if s == nil {
-		return ""
-	}
-	return s.networkName
-}
-
-func (s *SignalingSession) flagTransfer() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.pendingTransfers++
-	s.mu.Unlock()
-	if s.manager != nil {
-		s.manager.enqueuePending(s)
-	}
-}
-
-func (s *SignalingSession) consumeTransfer() bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pendingTransfers == 0 {
-		return false
-	}
-	s.pendingTransfers--
-	return true
-}
-
-func (m *SignalingHub) enqueuePending(sess *SignalingSession) {
-	if m == nil || sess == nil || m.pending == nil {
-		return
-	}
-	select {
-	case m.pending <- sess:
-	default:
-	}
-}
-
-func (m *SignalingHub) sessionsSnapshot() []*SignalingSession {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.sessions) == 0 {
-		return nil
-	}
-	sessions := make([]*SignalingSession, 0, len(m.sessions))
-	for _, sess := range m.sessions {
-		sessions = append(sessions, sess)
-	}
-	return sessions
-}
-
-func (m *SignalingHub) ClaimPending(ctx context.Context) *xbox.Account {
-	if m == nil {
-		return nil
-	}
-	sessions := m.sessionsSnapshot()
-	for _, sess := range sessions {
-		if sess.consumeTransfer() {
-			return sess.account
-		}
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case sess := <-m.pending:
-			if sess == nil {
-				continue
-			}
-			if sess.consumeTransfer() {
-				return sess.account
-			}
-		}
-	}
 }
