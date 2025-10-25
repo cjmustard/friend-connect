@@ -77,7 +77,8 @@ opts := friendconnect.Options{
         OnlineCrossPlatformGame: true,                                  // Enable cross-platform play
         CrossPlayDisabled:       false,                                 // Disable cross-play
     },
-    Logger: logger, // Logger instance for application logging
+    Logger:     logger,                    // Logger instance for application logging
+    ResetTimer: 30 * time.Minute,         // How often to restart service to clear ports (default: 30 minutes)
 }
 ```
 
@@ -85,6 +86,7 @@ opts := friendconnect.Options{
 - **Remote Server**: Change `RemoteAddress` in `RelayOptions` to your target server
 - **Server Name**: Modify `Name` in `ListenerOptions` to change what friends see
 - **Friend Settings**: Adjust `AutoAccept` and `AutoAdd` in `FriendOptions`
+- **Reset Timer**: Set `ResetTimer` to control how often the service restarts (default: 30 minutes)
 
 ## How to Use
 
@@ -92,6 +94,16 @@ opts := friendconnect.Options{
 2. Your friends will see your session in their Xbox Live friend list
 3. When they join, they'll be automatically connected to your configured server
 4. The service handles all the Xbox Live integration behind the scenes
+
+### Automatic Reset Timer
+
+The service includes an automatic reset timer (default: 30 minutes) that:
+- Stops all components to clear ports and connections
+- Waits 30 seconds for ports to fully clear
+- Restarts all components to refresh the service state
+- Helps prevent connection issues and keeps the service running smoothly
+
+You can customize the reset interval by setting `ResetTimer` in the configuration, or disable it by setting it to `0`.
 
 ## For Developers
 

@@ -116,6 +116,10 @@ func (s *Service) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	if s.opts.ResetTimer > 0 {
+		go s.resetService(ctx)
+	}
+
 	var listenerProvider minecraft.ServerStatusProvider = minecraft.NewStatusProvider(s.opts.Listener.Name, s.opts.Listener.Message)
 	if addr := s.opts.Relay.RemoteAddress; addr != "" {
 		if foreign, err := minecraft.NewForeignStatusProvider(addr); err == nil {
@@ -141,5 +145,33 @@ func (s *Service) Stop() {
 
 	if s.nether != nil {
 		s.nether.Stop()
+	}
+}
+
+func (s *Service) resetService(ctx context.Context) {
+	ticker := time.NewTicker(s.opts.ResetTimer)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.log.Printf("reset timer triggered, restarting service")
+
+			s.Stop()
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+
+			s.nether.Start(ctx)
+			s.server.Start(ctx)
+			go s.fhandler.Run(ctx)
+
+			s.log.Printf("service reset complete")
+		}
 	}
 }

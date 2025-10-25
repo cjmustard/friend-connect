@@ -29,6 +29,8 @@ type Options struct {
 	HTTPClient *http.Client
 	// Logger is the logger instance for application logging and debugging output
 	Logger *log.Logger
+	// ResetTimer defines how often the service should restart to clear ports and refresh state
+	ResetTimer time.Duration
 }
 
 // FriendOptions controls friend management and synchronization behavior.
@@ -99,5 +101,8 @@ func (o *Options) ApplyDefaults() {
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	if o.ResetTimer <= 0 {
+		o.ResetTimer = 30 * time.Minute
 	}
 }
