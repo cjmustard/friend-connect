@@ -125,8 +125,7 @@ func (h *SignalingHub) Start(ctx context.Context) {
 	})
 }
 
-func (h *SignalingHub) Reset() {
-	h.log.Printf("resetting signaling hub state...")
+func (h *SignalingHub) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, sess := range h.sessions {
@@ -135,7 +134,6 @@ func (h *SignalingHub) Reset() {
 		}
 	}
 	h.sessions = map[string]*SignalingSession{}
-	h.log.Printf("signaling hub state reset complete")
 }
 
 func (h *SignalingHub) AttachAccount(acct *xbox.Account) {
@@ -291,7 +289,6 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 				return
 			}
 			m.log.Printf("dial nethernet failed for %s: %v", acct.Gamertag(), err)
-			m.log.Printf("retrying connection for %s in 2 seconds", acct.Gamertag())
 			time.Sleep(netherRetryInterval)
 			continue
 		}
@@ -320,7 +317,6 @@ func (m *SignalingHub) runSession(ctx context.Context, acct *xbox.Account, sess 
 			time.Sleep(netherCloseDelay)
 			_ = conn.Close()
 			sess.setSignaling(nil, nil)
-			m.log.Printf("nethernet connection lost for %s, reconnecting", acct.Gamertag())
 			time.Sleep(netherReconnectDelay)
 			continue
 		}

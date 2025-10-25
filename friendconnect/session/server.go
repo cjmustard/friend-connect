@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/df-mc/go-xsapi/mpsd"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 
@@ -30,7 +29,6 @@ type Server struct {
 
 	conns           map[string]*minecraft.Conn
 	announcers      map[string]*room.XBLAnnouncer
-	sessions        map[string]*mpsd.Session
 	startedAccounts map[string]struct{}
 	netherAccounts  map[string]struct{}
 
@@ -100,7 +98,6 @@ func NewServer(logger *log.Logger, accounts *xbox.Store, netherHub *SignalingHub
 		httpClient:      httpClient,
 		nether:          netherHub,
 		announcers:      map[string]*room.XBLAnnouncer{},
-		sessions:        map[string]*mpsd.Session{},
 		startedAccounts: map[string]struct{}{},
 		netherAccounts:  map[string]struct{}{},
 		viewership: ViewershipOptions{

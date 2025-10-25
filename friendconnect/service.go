@@ -16,11 +16,6 @@ import (
 	"github.com/cjmustard/friend-connect/friendconnect/xbox"
 )
 
-const (
-	initialRestartDelay = time.Second
-	maxRestartDelay     = 30 * time.Second
-)
-
 type Service struct {
 	opts     Options
 	log      *log.Logger
@@ -135,48 +130,16 @@ func (s *Service) Run(ctx context.Context) error {
 
 	go s.fhandler.Run(ctx)
 
-	return s.listenAndRestart(ctx, listenerProvider)
+	return s.server.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
 }
 
-func (s *Service) listenAndRestart(ctx context.Context, listenerProvider minecraft.ServerStatusProvider) error {
-	restartDelay := initialRestartDelay
+// Stop stops the service and cleans up all resources.
+func (s *Service) Stop() {
+	if s.server != nil {
+		s.server.Stop()
+	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		err := s.server.Listen(ctx, session.Options{Addr: s.opts.Listener.Address, Provider: listenerProvider})
-		if err == nil || ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		s.log.Printf("server stopped with error: %v, restarting in %v", err, restartDelay)
-
-		if s.server != nil {
-			s.server.Reset()
-		}
-		if s.nether != nil {
-			s.nether.Reset()
-			s.nether.Start(ctx)
-		}
-		if s.server != nil {
-			s.server.Start(ctx)
-		}
-		go s.fhandler.Run(ctx)
-
-		s.log.Printf("service components reinitialized")
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(restartDelay):
-			restartDelay *= 2
-			if restartDelay > maxRestartDelay {
-				restartDelay = maxRestartDelay
-			}
-		}
+	if s.nether != nil {
+		s.nether.Stop()
 	}
 }

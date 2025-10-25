@@ -38,7 +38,6 @@ func (m *Server) handleRelayTransfer(ctx context.Context, conn *minecraft.Conn) 
 	if clientName == "" {
 		clientName = identity.DisplayName
 	}
-	m.log.Printf("transferring client %s to %s", clientName, m.relay.RemoteAddress)
 
 	host, portStr, err := net.SplitHostPort(m.relay.RemoteAddress)
 	if err != nil {

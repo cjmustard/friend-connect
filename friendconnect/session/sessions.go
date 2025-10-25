@@ -37,9 +37,6 @@ func (m *Server) ensureSession(ctx context.Context, acct *xbox.Account) error {
 	if err := ann.Announce(ctx, status); err != nil {
 		return fmt.Errorf("announce session: %w", err)
 	}
-	if ann.Session != nil {
-		m.storeSession(acct.SessionID(), ann.Session)
-	}
 	return nil
 }
 
@@ -64,15 +61,6 @@ func (m *Server) announcerFor(acct *xbox.Account) *room.XBLAnnouncer {
 	return ann
 }
 
-func (m *Server) storeSession(id string, sess *mpsd.Session) {
-	if sess == nil || id == "" {
-		return
-	}
-	m.mu.Lock()
-	m.sessions[id] = sess
-	m.mu.Unlock()
-}
-
 func (m *Server) cleanup() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -84,8 +72,7 @@ func (m *Server) cleanup() {
 	m.announcers = map[string]*room.XBLAnnouncer{}
 }
 
-func (m *Server) Reset() {
-	m.log.Printf("resetting server state...")
+func (m *Server) Stop() {
 	m.cleanup()
 
 	m.mu.Lock()
@@ -96,12 +83,10 @@ func (m *Server) Reset() {
 	}
 	m.conns = map[string]*minecraft.Conn{}
 
-	m.sessions = map[string]*mpsd.Session{}
 	m.startedAccounts = map[string]struct{}{}
 	m.netherAccounts = map[string]struct{}{}
 	m.mu.Unlock()
 
-	m.log.Printf("server state reset complete")
 }
 
 func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.Token) (room.Status, error) {
@@ -129,12 +114,8 @@ func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.
 				HostPort:       port,
 				RakNetGUID:     guid,
 			})
-			if status.TransportLayer == 0 {
-				status.TransportLayer = room.TransportLayerRakNet
-			}
-			if status.RakNetGUID == "" {
-				status.RakNetGUID = guid
-			}
+			status.TransportLayer = room.TransportLayerRakNet
+			status.RakNetGUID = guid
 		}
 	}
 
