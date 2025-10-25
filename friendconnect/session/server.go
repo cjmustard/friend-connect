@@ -38,9 +38,7 @@ type Server struct {
 	nether         *SignalingHub
 	netherProvider minecraft.ServerStatusProvider
 
-	listenPort uint16
-	listenGUID string
-	netherCtx  context.Context
+	netherCtx context.Context
 
 	relay      RelayOptions
 	viewership ViewershipOptions

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -172,9 +173,15 @@ func (m *Server) buildStatus(ctx context.Context, acct *xbox.Account, tok *xbox.
 }
 
 func (m *Server) listenerInfo() (uint16, string) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.listenPort, m.listenGUID
+	if m.listener == nil {
+		return 0, ""
+	}
+	var port uint16
+	if addr, ok := m.listener.Addr().(*net.UDPAddr); ok {
+		port = uint16(addr.Port)
+	}
+	guid := strings.ReplaceAll(uuid.NewString(), "-", "")
+	return port, guid
 }
 
 func randomLevelID() string {

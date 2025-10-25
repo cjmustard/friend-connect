@@ -7,10 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/df-mc/go-nethernet"
-	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
 
 	"github.com/cjmustard/friend-connect/friendconnect/xbox"
@@ -53,22 +51,6 @@ func (m *Server) Listen(ctx context.Context, opts Options) error {
 }
 
 func (m *Server) captureListenerInfo(listener *minecraft.Listener) {
-	if listener == nil {
-		return
-	}
-	var port uint16
-	if addr, ok := listener.Addr().(*net.UDPAddr); ok {
-		port = uint16(addr.Port)
-	}
-	guid := m.listenGUID
-	if guid == "" {
-		guid = strings.ReplaceAll(uuid.NewString(), "-", "")
-	}
-	m.mu.Lock()
-	m.listenPort = port
-	m.listenGUID = guid
-	m.mu.Unlock()
-
 	go m.accounts.WithAccounts(func(acct *xbox.Account) {
 		if err := m.ensureSession(context.Background(), acct); err != nil {
 			m.log.Printf("update session failed for %s: %v", acct.Gamertag(), err)
