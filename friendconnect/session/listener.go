@@ -23,7 +23,6 @@ func (m *Server) Listen(ctx context.Context, opts Options) error {
 	}
 	listener, err := minecraft.ListenConfig{
 		StatusProvider: opts.Provider,
-		PacketFunc:     m.handlePackets,
 	}.Listen("raknet", opts.Addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
@@ -137,7 +136,6 @@ func (m *Server) listenNetherForAccount(ctx context.Context, provider minecraft.
 
 	listener, err := minecraft.ListenConfig{
 		StatusProvider: provider,
-		PacketFunc:     m.handlePackets,
 	}.Listen(networkName, "")
 	if err != nil {
 		m.log.Printf("listen nether failed for %s: %v", acct.Gamertag(), err)
